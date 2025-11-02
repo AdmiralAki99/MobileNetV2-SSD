@@ -1,0 +1,2 @@
+# Removing the checkpoint files from notebook directory
+notebooks/.ipynb_checkpoints/*
