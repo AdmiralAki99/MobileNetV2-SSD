@@ -1,2 +1,6 @@
 # Removing the checkpoint files from notebook directory
-notebooks/.ipynb_checkpoints/*
+/.ipynb_checkpoints/*
+/*.weights.h5
+/*.csv
+/*.txt
+/*.drawio
