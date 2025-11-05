@@ -339,3 +339,17 @@ class MobileNetV2(tf.keras.Model):
             return Add(name=name)([x,y])
         else:
             raise ValueError(f"There is a mismatch between shapes: {input_shape} and {output_shape}")
+        
+        
+# Builder Function
+def build_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone"):
+    input_layer = Input(shape=input_shape)
+    mobilenetv2 = MobileNetV2(number_of_classes=None, alpha=alpha, name=name)
+    mobilenetv2.call(input_layer)
+    return mobilenetv2
+
+# Function to load the weights from a reference model
+def load_mobilenetv2_weights(model: MobileNetV2, weights_path: str):
+    # Loading the model weights from the given path
+    model = model.load_weights(weights_path)
+    return model
