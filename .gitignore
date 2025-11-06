@@ -3,4 +3,9 @@
 /*.weights.h5
 /*.csv
 /*.txt
-/*.drawio
+/docs/flowcharts/*
+/docs/images/*
+/src/models/__pycache__/*
+/src/models/mobilenet_v2/weights/*
+/tests/__pycache__/*
+/src/mobilenetv2_ssd.egg-info/*
