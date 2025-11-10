@@ -388,4 +388,153 @@ def iou_matrix_batched(boxes_1, boxes_2):
     # unions
     union = union_from_areas_batched(a_area, b_area, inter)
     # IoU
-    return inter / union  
+    return inter / union
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),  
+    ]
+)
+def hflip_xyxy_core(boxes: tf.Tensor,W: tf.float32):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    
+    x_min, y_min, x_max, y_max = tf.split(boxes,num_or_size_splits = 4, axis=-1)
+
+    # Flipping the Coordinates
+    x_min_new = W - x_max
+    x_max_new = W - x_min
+
+    return tf.concat([x_min_new,y_min,x_max_new,y_max],axis=-1)
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None,None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),  
+    ]
+)
+def hflip_xyxy_batched(boxes: tf.Tensor,W: tf.float32):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    tf.debugging.assert_greater(W, 0.0, message="boxes last dim must be 4")
+    B = tf.shape(boxes)[0]
+    N = tf.shape(boxes)[1]
+
+    flattened_boxes = tf.reshape(boxes,[-1,4])
+    flipped_boxes = hflip_xyxy_core(flattened_boxes,W)
+
+    return tf.reshape(flipped_boxes,[B,N,4])
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),  
+    ]
+)
+def vflip_xyxy_core(boxes: tf.Tensor,H: tf.float32):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    
+    x_min, y_min, x_max, y_max = tf.split(boxes,num_or_size_splits = 4, axis=-1)
+
+    # Flipping the Coordinates
+    y_min_new = H - y_max
+    y_max_new = H - y_min
+
+    return tf.concat([x_min,y_min_new,x_max,y_max_new],axis=-1)
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None,None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),  
+    ]
+)
+def vflip_xyxy_batched(boxes: tf.Tensor,H: tf.float32):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    tf.debugging.assert_greater(H, 0.0, message="boxes last dim must be 4")
+    B = tf.shape(boxes)[0]
+    N = tf.shape(boxes)[1]
+
+    flattened_boxes = tf.reshape(boxes,[-1,4])
+    flipped_boxes = vflip_xyxy_core(flattened_boxes,H)
+
+    return tf.reshape(flipped_boxes,[B,N,4])
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32)
+    ]
+)
+def resize_xyxy_core(boxes,source_height: tf.float32,source_width: tf.float32,destination_height: tf.float32,destination_width: tf.float32):
+    
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    
+    s_x = source_width / destination_width
+    s_y = destination_height / source_height
+
+    x_min, y_min, x_max, y_max = tf.split(boxes,num_or_size_splits = 4, axis=-1)
+
+    x_min = x_min * s_x
+    y_min = y_min * s_y
+    x_max = x_max * s_x
+    y_max = y_max * s_y
+
+    return tf.concat([x_min,y_min,x_max,y_max],axis=-1)
+
+def resize_xyxy_batched(boxes,source_height: tf.float32,source_width: tf.float32,destination_height: tf.float32,destination_width: tf.float32):
+    
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+    B = tf.shape(boxes)[0]
+    N = tf.shape(boxes)[1]
+
+    flattened_boxes = tf.reshape(boxes,[-1,4])
+    flipped_boxes = resize_xyxy_core(flattened_boxes,source_height,source_width,destination_height,destination_width)
+
+    return tf.reshape(flipped_boxes,[B,N,4])
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32)
+    ]
+)
+def crop_xyxy_core(boxes,crop_xmin,crop_ymin,crop_xmax,crop_ymax):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+
+    crop_w = crop_xmax - crop_xmin
+    crop_h = crop_ymax - crop_ymin
+
+    x_min, y_min, x_max, y_max = tf.split(boxes,num_or_size_splits = 4, axis=-1)
+
+    x_min = tf.minimum(crop_w, tf.maximum(0.0, x_min - crop_xmin))
+    y_min = tf.minimum(crop_h, tf.maximum(0.0, y_min - crop_ymin))
+
+    x_max = tf.minimum(crop_w, tf.maximum(0.0, x_max - crop_xmin))
+    y_max = tf.minimum(crop_h, tf.maximum(0.0, y_max - crop_ymin))
+
+    return tf.concat([x_min,y_min,x_max,y_max],axis=-1)
+
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None,None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32)
+    ]
+)
+def crop_xyxy_batched(boxes,crop_xmin,crop_ymin,crop_xmax,crop_ymax):
+    tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
+
+    B = tf.shape(boxes)[0]
+    N = tf.shape(boxes)[1]
+
+    flattened_boxes = tf.reshape(boxes,[-1,4])
+    cropped_boxes = crop_xyxy_core(flattened_boxes,crop_xmin,crop_ymin,crop_xmax,crop_ymax)
+
+    return tf.reshape(cropped_boxes,[B,N,4])
