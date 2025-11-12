@@ -1,5 +1,6 @@
 import pandas as pd
 from typing import Iterable, Literal, overload
+import hashlib, json
 import numpy as np
 import math
 import tensorflow as tf
@@ -131,9 +132,9 @@ def anchors_per_cell(scales_for_layer, ratios_for_layer, dtype = tf.float32):
     ratio_sqrt = tf.math.sqrt(ratios)
     
     width = scales * ratio_sqrt
-    width = scales / ratio_sqrt
+    height = scales / ratio_sqrt
 
-    return tf.stack([tf.reshape(width,[-1]),tf.reshape(width,[-1])],axis=1)
+    return tf.stack([tf.reshape(width,[-1]),tf.reshape(height,[-1])],axis=1)
 
 @tf.function(input_signature=[
     tf.TensorSpec([None], tf.float32),  
@@ -169,7 +170,7 @@ def tile_layer_anchors(centers_x_layer,centers_y_layer,anchors_specs_layer, dtyp
 
     return priors
 
-@tf.function
+
 def build_layer_priors(feature_map_shape, image_size, scales_in_layer, ratios_in_layer, dtype = tf.float32, clip = True):
     # This is the wrapper that will do all of the steps inside itself and encapsulate the entire generation steps
     # 1. Creating Grid Centers
@@ -214,6 +215,11 @@ def concatenate_priors(layers: list[tf.Tensor],clip: bool = True,dtype: tf.dtype
     tf.debugging.assert_all_finite(priors, "Concatenated priors contain non-finite values.")
     return priors
 
+def _build_fingerprint(config):
+    serialized = json.dumps(config, sort_keys=True).encode()
+    return hashlib.md5(serialized).hexdigest()
+
+
 def compute_meta(layers_priors: list[tf.Tensor], image_size: tuple[int,int], strides: list[float]| None , feature_map_shapes: list[tuple[int,int]], scales_per_layer: list[[float]], aspect_ratios_per_layer: list[[float]]):
     # Validate inputs
     length = len(feature_map_shapes)
@@ -242,7 +248,7 @@ def compute_meta(layers_priors: list[tf.Tensor], image_size: tuple[int,int], str
 
     total_number_of_anchors = tf.reduce_sum(number_of_anchors_per_layer)
 
-    return {
+    meta = {
         "image_size": (H,W),
         "feature_map_sizes" : feature_map_shapes,
         "strides": list(strides) if strides is not None else None,
@@ -253,6 +259,10 @@ def compute_meta(layers_priors: list[tf.Tensor], image_size: tuple[int,int], str
         "anchors_per_cell": anchors_per_cell,
         "total_number_of_anchors": total_number_of_anchors
     }
+
+    meta["fingerprint"] = _build_fingerprint({"image_size": image_size, "feature_map_sizes" : feature_map_shapes,"scales_per_layer": scales_per_layer,"ratios_per_layer": aspect_ratios_per_layer})
+
+    return meta
     
 def build_priors(image_size: tuple[int,int],strides: list[int] | None = None,feature_map_shapes: list[tuple[int,int]] | None = None,scales: list[list[float]] | list[float] | None = None,aspect_ratios: list[list[float]] | list[float] | None = None,s_min: float | None = None,s_max: float | None = None,include_extra: bool = True,clip: bool = True,dtype: tf.DType = tf.float32,return_meta: bool = True):
     # If feature map is unknown it needs to be calculated
@@ -273,3 +283,13 @@ def build_priors(image_size: tuple[int,int],strides: list[int] | None = None,fea
     meta = compute_meta(prior_layers, image_size, strides, feature_map_shapes, scales, ratios)
 
     return priors, meta
+
+def build_priors_batched(priors: tf.Tensor, batch_size: int):
+    
+    tf.debugging.assert_equal(tf.shape(priors)[-1], 4, "Shape of priors needs to have format [cx cy w h]")
+    tf.debugging.assert_greater(batch_size, 0, "Batch Size must be minimum of 1")
+    priors_batched = tf.convert_to_tensor(priors)
+    B = tf.cast(batch_size,tf.int32)
+    N = tf.cast(tf.shape(priors)[0], tf.int32)
+
+    return tf.broadcast_to(priors[tf.newaxis,...],[B,N,4])

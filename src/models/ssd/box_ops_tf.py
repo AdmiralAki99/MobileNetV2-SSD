@@ -262,7 +262,7 @@ def area_xyxy_core(boxes: tf.Tensor):
 
     area = w * h
 
-    return tf.squeeze(area)
+    return tf.squeeze(area, axis=-1)
 
 @tf.function(
     input_signature = [
@@ -301,12 +301,12 @@ def intersection_xyxy_core(boxes_1,boxes_2):
     y_max = tf.minimum(ay_max[:,None], by_max[None,:])
 
     # Calculating the intersection
-    w = tf.maximum(x_max - x_min, 0)
-    h = tf.maximum(y_max - y_min, 0)
+    w = tf.maximum(x_max - x_min, 0.0)
+    h = tf.maximum(y_max - y_min, 0.0)
 
     intersection = w * h
 
-    return tf.squeeze(intersection)
+    return tf.squeeze(intersection,axis=-1)
 
 @tf.function(
     input_signature=[
@@ -363,7 +363,12 @@ def union_from_areas_batched(a_area, b_area, inter):
     ]
 )
 def iou_matrix_core(boxes_1, boxes_2):
+    tf.debugging.assert_rank(boxes_1, 2, message="boxes1 must be (M,4)")
+    tf.debugging.assert_equal(tf.shape(boxes_1)[-1], 4)
+    tf.debugging.assert_rank(boxes_2, 2, message="boxes2 must be (N,4)")
+    tf.debugging.assert_equal(tf.shape(boxes_2)[-1], 4)
     # areas
+    
     a_area = area_xyxy_core(boxes_1)
     b_area = area_xyxy_core(boxes_2)
     # intersections
