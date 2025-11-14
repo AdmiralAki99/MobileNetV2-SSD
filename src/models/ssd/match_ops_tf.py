@@ -1,12 +1,3 @@
-import pandas as pd
-from typing import Iterable, Literal, overload
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import cv2 as cv
-import numpy as np
-import math
-import os
-
 import tensorflow as tf
 
 from box_ops_tf import cxcywh_toxyxy_core, iou_matrix_core
@@ -154,3 +145,44 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
         return_dict['matched_iou'] = matched_iou
 
     return return_dict
+
+def hard_negative_mining(conf_loss: tf.Tensor, pos_mask: tf.Tensor, neg_mask:tf.Tensor, neg_ratio: float, min_neg: int| None, max_neg: int| None):
+    
+    num_positive = tf.reduce_sum(tf.cast(pos_mask, tf.int32))
+
+    K = tf.math.floor(tf.cast(neg_ratio,dtype=tf.float32) * tf.cast(num_positive,dtype=tf.float32))
+    K = tf.cast(K,tf.int32)
+
+    if max_neg is not None:
+        K = tf.minimum(K,tf.cast(max_neg,tf.int32))
+
+    if min_neg is not None:
+        K = tf.maximum(K,tf.cast(min_neg,tf.int32))
+
+    K = tf.cast(tf.where(num_positive > 0, K, tf.zeros_like(K)),dtype=tf.int32)
+
+    # Getting the indices for the negative boxes
+    negative_indices = tf.where(neg_mask)[:,0]
+
+    negative_losses = tf.gather(conf_loss,negative_indices)
+
+    # Filtering the losses to not include NaN or inf
+    valid_mask = tf.logical_not(tf.math.is_nan(negative_losses))
+    valid_negative_indices = tf.boolean_mask(negative_indices,valid_mask)
+    valid_negative_losses = tf.boolean_mask(negative_losses,valid_mask)
+
+    # Checking if there are no valid losses
+    num_valid_losses = tf.shape(valid_negative_losses)[0]
+    k = tf.minimum(K,num_valid_losses)
+
+    top_k_losses, top_k_indices = tf.math.top_k(valid_negative_losses,k=k,sorted=True)
+    
+    hard_negative_indices = tf.cast(tf.gather(valid_negative_indices,top_k_indices),tf.int32)
+
+    hard_negative_indices = tf.expand_dims(hard_negative_indices,axis=1)
+
+    selected_negative_mask = tf.scatter_nd(indices = hard_negative_indices, updates = tf.ones(k,dtype=tf.bool),shape=[tf.shape(conf_loss)[0]])
+
+    selected_negative_indices = tf.reduce_sum(tf.cast(selected_negative_mask,tf.int32))
+
+    return selected_negative_mask, selected_negative_indices
