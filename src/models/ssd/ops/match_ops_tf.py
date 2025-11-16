@@ -93,7 +93,7 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
     if tf.equal(tf.size(gt_boxes_xyxy),0):
         return {
         "matched_gt_xyxy": tf.zeros([N, 4], tf.float32),
-        "matched_labels":  tf.zeros([N], tf.int32),
+        "matched_gt_labels":  tf.zeros([N], tf.int32),
         "pos_mask":        tf.zeros([N], tf.bool),
         "neg_mask":        tf.ones([N],  tf.bool),
         "ignore_mask":     tf.zeros([N], tf.bool),
