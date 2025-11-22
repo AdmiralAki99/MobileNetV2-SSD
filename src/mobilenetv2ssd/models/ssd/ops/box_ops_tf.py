@@ -476,7 +476,7 @@ def resize_xyxy_core(boxes,source_height: tf.float32,source_width: tf.float32,de
     
     tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
     
-    s_x = source_width / destination_width
+    s_x = destination_width / source_width
     s_y = destination_height / source_height
 
     x_min, y_min, x_max, y_max = tf.split(boxes,num_or_size_splits = 4, axis=-1)
@@ -488,6 +488,15 @@ def resize_xyxy_core(boxes,source_height: tf.float32,source_width: tf.float32,de
 
     return tf.concat([x_min,y_min,x_max,y_max],axis=-1)
 
+@tf.function(
+    input_signature=[
+        tf.TensorSpec([None,None, 4], tf.float32), 
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32),
+        tf.TensorSpec([], tf.float32)
+    ]
+)
 def resize_xyxy_batched(boxes,source_height: tf.float32,source_width: tf.float32,destination_height: tf.float32,destination_width: tf.float32):
     
     tf.debugging.assert_equal(tf.shape(boxes)[-1], 4, message="boxes last dim must be 4")
