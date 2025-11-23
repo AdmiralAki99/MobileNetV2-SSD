@@ -1,7 +1,12 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Add, ReLU
 
-from blocks import StandardConvolutionBlock, InvertedResidualBlock
+from pathlib import Path
+
+from .blocks import StandardConvolutionBlock, InvertedResidualBlock
+
+_BACKBONE_DIR = Path(__file__).resolve().parent
+_DEFAULT_WEIGHTS_DIR = _BACKBONE_DIR / "weights"
 
 class MobileNetV2(tf.keras.Model):
     def __init__(self,number_of_classes,name="backbone", alpha = 1.0, **kwargs):
@@ -163,8 +168,55 @@ class MobileNetV2(tf.keras.Model):
             raise ValueError(f"There is a mismatch between shapes: {input_shape} and {output_shape}")
         
         
+        
+# Overarching Builder Function
+def build_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone",weights_dir: str | None = _DEFAULT_WEIGHTS_DIR):
+    # First create the model
+    model = build_custom_mobilenetv2_backbone(input_shape=input_shape,alpha=alpha,name=name)
+    
+    # Now check if the model weights exist
+    W = input_shape[0]
+    H = input_shape[1]
+    
+    weights_file_name = f"mobilenetv2_imagenet_notop_{W}x{H}.weights.h5"
+    
+    # Check if the directory exists
+    weights_dir = Path(weights_dir)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = weights_dir / weights_file_name
+    
+    # Check if the file exists
+    if weights_path.exists():
+        print(f"[build_backbone] Loading existing weights from: {weights_path}")
+        load_mobilenetv2_weights(model,str(weights_path))
+        return model
+    
+    # The file does not exist so it needs to be transplanted
+    
+    print("[build_backbone] Weights file not found. Transplanting weights manually")
+    
+    # First create the reference model from Tensorflow
+    print("[build_backbone] Creating reference model to transplant from")
+    ref_model = tf.keras.applications.MobileNetV2(input_shape=input_shape,alpha=alpha,include_top=False,weights='imagenet',input_tensor=None,pooling=None,classes=1000,classifier_activation='softmax')
+    
+    # Creating the reference table
+    print("[build_backbone] Created the translation table for the model")
+    translation_map = create_reference_table()
+    
+    # Creating the reference layers to transplant from
+    print("[build_backbone] Created the reference table for the model")
+    ref_layers = {layer.name: layer for layer in ref_model.layers}
+    
+    model.transplant_weights(ref_layers,translation_map)
+    
+    # Now Storing the weights to the weights path
+    model.save_weights(str(weights_path))
+    
+    return model
+
+
 # Builder Function
-def build_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone"):
+def build_custom_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone"):
     input_layer = Input(shape=input_shape)
     mobilenetv2 = MobileNetV2(number_of_classes=None, alpha=alpha, name=name)
     mobilenetv2.call(input_layer)
@@ -174,4 +226,54 @@ def build_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilen
 def load_mobilenetv2_weights(model: MobileNetV2, weights_path: str):
     # Loading the model weights from the given path
     model = model.load_weights(weights_path)
-    return model
+
+
+# Creating the Reference Table For the transplant
+
+standard_conv_block_name_map = {
+    "Conv1_conv" : 'Conv1',
+    "Conv1_bn" : "bn_Conv1",
+    "Conv1_relu6": "Conv1_relu"
+}
+
+final_block_name_map = {
+    "conv_head" : "Conv_1",
+    "conv_head_bn" : "Conv_1_bn",
+    "conv_head_relu" : "out_relu"
+}
+bottleneck_block_1 = {
+    'bottleneck_block_1_dw_conv': 'expanded_conv_depthwise',
+    'bottleneck_block_1_dw_bn': 'expanded_conv_depthwise_BN',
+    'bottleneck_block_1_dw_relu6': 'expanded_conv_depthwise_relu',
+    'bottleneck_block_1_project_conv': 'expanded_conv_project',
+    'bottleneck_block_1_project_bn': 'expanded_conv_project_BN'
+}
+
+def make_block_map(k, ref_idx):
+    """Builds a name_map for one bottleneck block.
+
+    k        = your block index (e.g., 2)
+    ref_idx  = TF reference block index (e.g., 1 for block_1)
+    """
+    return {
+        f"bottleneck_block_{k}_expand_conv" : f"block_{ref_idx}_expand",
+        f"bottleneck_block_{k}_expand_bn"   : f"block_{ref_idx}_expand_BN",
+        f"bottleneck_block_{k}_expand_relu6": f"block_{ref_idx}_expand_relu",
+        f"bottleneck_block_{k}_dw_conv"     : f"block_{ref_idx}_depthwise",
+        f"bottleneck_block_{k}_dw_bn"       : f"block_{ref_idx}_depthwise_BN",
+        f"bottleneck_block_{k}_dw_relu6"    : f"block_{ref_idx}_depthwise_relu",
+        f"bottleneck_block_{k}_project_conv": f"block_{ref_idx}_project",
+        f"bottleneck_block_{k}_project_bn"  : f"block_{ref_idx}_project_BN",
+    }
+    
+def create_reference_table():
+    
+    bottlenecks = {k: make_block_map(k, k-1) for k in range(2, 18)}
+    bottlenecks[1] = bottleneck_block_1
+    
+    name_maps = {}
+    name_maps['standard_conv_block'] = standard_conv_block_name_map
+    name_maps['bottlenecks'] = bottlenecks
+    name_maps['final_block'] = final_block_name_map
+    
+    return name_maps
