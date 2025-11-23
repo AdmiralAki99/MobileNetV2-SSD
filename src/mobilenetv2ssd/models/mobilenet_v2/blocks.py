@@ -178,5 +178,5 @@ class InvertedResidualBlock(tf.keras.Model):
 
         return lookup_layer
     
-    def _make_divisible(v, divisor=8):
+    def _make_divisible(self,v, divisor=8):
         return max(divisor, int(v + divisor / 2) // divisor * divisor)

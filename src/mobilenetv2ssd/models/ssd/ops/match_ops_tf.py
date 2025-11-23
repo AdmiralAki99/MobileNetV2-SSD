@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from box_ops_tf import cxcywh_toxyxy_core, iou_matrix_core
+from .box_ops_tf import cxcywh_toxyxy_core, iou_matrix_core
 
 def _check_for_center_alignment(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor):
     

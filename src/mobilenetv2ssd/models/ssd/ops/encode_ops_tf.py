@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from box_ops_tf import xyxy_to_cxcywh_core
+from .box_ops_tf import xyxy_to_cxcywh_core
 
 def _sanitize_boxes_xyxy(boxes_normalized: tf.Tensor):
     # Making sure the format of the boxes is correct

@@ -6,7 +6,7 @@ def calculate_feature_map_shapes(image_shape: tuple[int,int], strides: [int]):
     
     # Calculating the feature map size for the image
     assert isinstance(image_shape[0], int) and isinstance(image_shape[1], int), "image_shape must be (int, int) pixels"
-    assert image_shape[0] >= 0, f"Image shape cannot be 0"
+    assert image_shape[0] > 0 and image_shape[1] > 0, "Image shape cannot be 0"
     assert all(isinstance(s, int) and s > 0 for s in strides), "all strides must be positive ints"
 
     fm_h = [math.ceil(image_shape[0]/stride) for stride in strides]
@@ -285,7 +285,7 @@ def build_priors_batched(priors: tf.Tensor, batch_size: int):
     
     tf.debugging.assert_equal(tf.shape(priors)[-1], 4, "Shape of priors needs to have format [cx cy w h]")
     tf.debugging.assert_greater(batch_size, 0, "Batch Size must be minimum of 1")
-    priors_batched = tf.convert_to_tensor(priors)
+    priors = tf.convert_to_tensor(priors)
     B = tf.cast(batch_size,tf.int32)
     N = tf.cast(tf.shape(priors)[0], tf.int32)
 
