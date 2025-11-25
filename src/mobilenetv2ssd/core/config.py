@@ -192,8 +192,3 @@ def _inject_env_vars_string(s: str) -> str:
 
 # MACROS
 PROJECT_ROOT = get_project_root()
-
-
-
-if __name__ == "__main__":
-    load_config()
