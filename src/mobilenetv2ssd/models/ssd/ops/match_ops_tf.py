@@ -82,7 +82,7 @@ def _calculate_matches(iou_matrix: tf.Tensor,gt_boxes: tf.Tensor,positive_iou_th
         "num_pos": number_of_positive_priors,
     }
     
-def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, positive_iou_thresh: float, negative_iou_thresh: float, max_pos_per_gt: list[int] | None, allow_low_qual_matches: bool = True, center_in_gt: bool = True , return_iou: bool = False):
+def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, gt_valid_mask: tf.Tensor | None, positive_iou_thresh: float, negative_iou_thresh: float, max_pos_per_gt: list[int] | None, allow_low_qual_matches: bool = True, center_in_gt: bool = True , return_iou: bool = False):
 
     priors_cxcywh = tf.reshape(priors_cxcywh, [-1, 4])
     gt_boxes_xyxy = tf.reshape(gt_boxes_xyxy, [-1, 4])
@@ -90,7 +90,13 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
     N = tf.shape(priors_cxcywh)[0]
     M = tf.shape(gt_boxes_xyxy)[0]
 
-    if tf.equal(tf.size(gt_boxes_xyxy),0):
+    # Fringe case, if gt_valid_mask is None then treat all boxes as valid
+    if gt_valid_mask is None:
+        gt_valid_mask = tf.ones_like(gt_labels,tf.bool)
+
+    validity_check = tf.cast(gt_valid_mask,dtype=tf.int32)
+
+    if tf.equal(tf.size(gt_boxes_xyxy),0) or tf.equal(tf.reduce_sum(validity_check),tf.constant(0,dtype=tf.int32)):
         return {
         "matched_gt_xyxy": tf.zeros([N, 4], tf.float32),
         "matched_gt_labels":  tf.zeros([N], tf.int32),
@@ -102,20 +108,26 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
         "num_pos":         tf.zeros([], tf.int32),
         }
 
+    # Need to compute which of the gt boxes are valid
+    valid_indices = tf.where(gt_valid_mask)
+
+    valid_gt_boxes = tf.gather_nd(gt_boxes_xyxy, valid_indices)
+    valid_labels = tf.gather_nd(gt_labels, valid_indices)
+
     # Compute the IoU Matrix
     priors_xyxy = cxcywh_toxyxy_core(priors_cxcywh)
-    iou_matrix = iou_matrix_core(gt_boxes_xyxy,priors_xyxy)
+    iou_matrix = iou_matrix_core(valid_gt_boxes,priors_xyxy)
 
     if center_in_gt:
-        center_aligned = _check_for_center_alignment(priors_cxcywh,gt_boxes_xyxy)
+        center_aligned = _check_for_center_alignment(priors_cxcywh,valid_gt_boxes)
         # Filter out the Non centered priors
         iou_matrix = tf.where(center_aligned, iou_matrix, tf.zeros_like(iou_matrix))
 
     # Calculate matching mask
-    match_dict = _calculate_matches(iou_matrix,gt_boxes_xyxy,positive_iou_thresh,negative_iou_thresh,enforce_bipartite = allow_low_qual_matches)
+    match_dict = _calculate_matches(iou_matrix,valid_gt_boxes,positive_iou_thresh,negative_iou_thresh,enforce_bipartite = allow_low_qual_matches)
 
-    labels_g = tf.gather(gt_labels,match_dict["assigned_gt_box_index"])
-    boxes_g  = tf.gather(gt_boxes_xyxy, match_dict["assigned_gt_box_index"])
+    labels_g = tf.gather(valid_labels,match_dict["assigned_gt_box_index"])
+    boxes_g  = tf.gather(valid_gt_boxes, match_dict["assigned_gt_box_index"])
 
     zeros_labels = tf.zeros_like(match_dict["assigned_gt_box_index"], dtype=tf.int32)
     zeros_boxes  = tf.zeros([N, 4], dtype=gt_boxes_xyxy.dtype)
@@ -143,6 +155,8 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
         max_iou = match_dict["max_iou_per_prior"] 
         matched_iou = tf.where(match_dict["pos_mask"], max_iou, tf.zeros_like(max_iou))
         return_dict['matched_iou'] = matched_iou
+    else:
+        return_dict["matched_iou"] = tf.zeros([N], tf.float32)
 
     return return_dict
 
