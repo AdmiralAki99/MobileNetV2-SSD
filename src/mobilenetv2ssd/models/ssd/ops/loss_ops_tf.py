@@ -179,7 +179,7 @@ def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, tar
         localization_loss = tf.math.divide(localization_raw,tf.cast(number_of_classifications,dtype=tf.float32))
         classification_loss = tf.math.divide(classification_raw,tf.cast(number_of_classifications,dtype=tf.float32))
     elif normalize_denom == "num_batch":
-        localization_loss = tf.math.divide(localization_raw,tf.cast(number_of_positives,dtype=tf.float32))
+        localization_loss = tf.math.divide(localization_raw,tf.cast(B,dtype=tf.float32))
         classification_loss = tf.math.divide(classification_raw,tf.cast(B,dtype=tf.float32))
     else:
         localization_loss = tf.math.divide(localization_raw,tf.cast(number_of_positives,dtype=tf.float32))

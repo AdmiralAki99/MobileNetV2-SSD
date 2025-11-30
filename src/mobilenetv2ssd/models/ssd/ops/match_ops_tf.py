@@ -197,6 +197,6 @@ def hard_negative_mining(conf_loss: tf.Tensor, pos_mask: tf.Tensor, neg_mask:tf.
 
     selected_negative_mask = tf.scatter_nd(indices = hard_negative_indices, updates = tf.ones(k,dtype=tf.bool),shape=[tf.shape(conf_loss)[0]])
 
-    selected_negative_indices = tf.reduce_sum(tf.cast(selected_negative_mask,tf.int32))
+    selected_negative_indices = hard_negative_indices
 
     return selected_negative_mask, selected_negative_indices
