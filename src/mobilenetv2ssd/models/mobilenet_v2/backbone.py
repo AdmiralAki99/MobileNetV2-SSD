@@ -9,7 +9,7 @@ _BACKBONE_DIR = Path(__file__).resolve().parent
 _DEFAULT_WEIGHTS_DIR = _BACKBONE_DIR / "weights"
 
 class MobileNetV2(tf.keras.Model):
-    def __init__(self,number_of_classes,name="backbone", alpha = 1.0, **kwargs):
+    def __init__(self,name="backbone", alpha = 1.0, **kwargs):
         super().__init__(name=name, **kwargs)
 
         # Creating the layers in the model
@@ -39,6 +39,8 @@ class MobileNetV2(tf.keras.Model):
         self.final_relu = ReLU(6.0, name="conv_head_relu")
 
     def call(self,x, training = False, **kwargs):
+        
+        feature_maps = {} 
 
         x = self.conv_1(x)
 
@@ -48,6 +50,8 @@ class MobileNetV2(tf.keras.Model):
         skip = x
         x = self.bottleneck_3(x, training = training)
         x = Add()([skip,x])
+        feature_maps["C2"] = x 
+        
         x = self.bottleneck_4(x, training = training)
         skip = x
         x = self.bottleneck_5(x, training = training)
@@ -55,6 +59,8 @@ class MobileNetV2(tf.keras.Model):
         skip = x
         x = self.bottleneck_6(x, training = training)
         x = Add()([skip,x])
+        feature_maps["C3"] = x 
+        
         x = self.bottleneck_7(x, training = training)
         skip = x
         x = self.bottleneck_8(x, training = training)
@@ -72,6 +78,8 @@ class MobileNetV2(tf.keras.Model):
         skip = x
         x = self.bottleneck_13(x, training = training)
         x = Add()([skip,x])
+        feature_maps["C4"] = x
+        
         x = self.bottleneck_14(x, training = training)
         skip = x
         x = self.bottleneck_15(x, training = training)
@@ -84,8 +92,9 @@ class MobileNetV2(tf.keras.Model):
         x = self.conv_2(x)
         x = self.final_batch_norm(x, training = training)
         x = self.final_relu(x, training = training)
+        feature_maps["C5"] = x
 
-        return x
+        return feature_maps
 
     def transplant_weights(self, reference_table, model_maps):
 
@@ -218,7 +227,7 @@ def build_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbon
 # Builder Function
 def build_custom_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone"):
     input_layer = Input(shape=input_shape)
-    mobilenetv2 = MobileNetV2(number_of_classes=None, alpha=alpha, name=name)
+    mobilenetv2 = MobileNetV2(alpha=alpha, name=name)
     mobilenetv2.call(input_layer)
     return mobilenetv2
 
