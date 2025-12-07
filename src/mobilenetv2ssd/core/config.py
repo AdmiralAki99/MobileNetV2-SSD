@@ -3,6 +3,7 @@ from copy import deepcopy
 import re
 import os
 import yaml
+from typing import Any
 
 _ENV_PATTERN = re.compile(r"\$\{([^}:]+)(:-([^}]*))?\}")
 
@@ -49,6 +50,8 @@ def load_config(cfg_path: str | Path, model_cfg_path: str | Path | None = None, 
         main_config = merge_dict(main_config, override_dicts)
     
     main_config = inject_env_vars(main_config)
+    
+    main_config = _resolve_paths(main_config, PROJECT_ROOT)
     
     return main_config
     
@@ -187,7 +190,48 @@ def _inject_env_vars_string(s: str) -> str:
         )
 
     return _ENV_PATTERN.sub(replacer, s)
-        
+
+def _resolve_paths(cfg: dict[str, Any], project_root: Path):
+    return _resolve_paths_obj(cfg, project_root)
+
+def _resolve_paths_obj(obj: Any, project_root: Path):
+    if isinstance(obj, dict):
+        resolved: dict[str, Any] = {}
+        for key, value in obj.items():
+            if isinstance(value, str) and _is_path_key(key):
+                resolved[key] = _resolve_single_path(value, project_root)
+            else:
+                resolved[key] = _resolve_paths_obj(value, project_root)
+        return resolved
+    
+    if isinstance(obj, list):
+        return [_resolve_paths_obj(v, project_root) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_resolve_paths_obj(v, project_root) for v in obj)
+    
+    return obj
+
+def _resolve_single_path(path_str: str, project_root: Path):
+    expanded = os.path.expanduser(path_str)
+    
+    if os.path.isabs(expanded):
+        return expanded
+    
+    absolute = (project_root / expanded).resolve()
+    
+    return str(absolute)
+
+def _is_path_key(key: str):
+    key = key.lower()
+    
+    if key in {"root", "dir", "path", "runs_root", "output_dir", "classes_file"}:
+        return True
+    
+    if key.endswith("_dir") or key.endswith("_root") or key.endswith("_path"):
+        return True
+    
+    return False
+
 
 
 # MACROS
