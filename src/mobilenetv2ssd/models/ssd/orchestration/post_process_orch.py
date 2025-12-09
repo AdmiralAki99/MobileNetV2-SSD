@@ -43,10 +43,12 @@ def _load_label_map(label_file_path: str, use_sigmoid: bool = False):
         
     return label_dict
 
-def _decode_class_names(class_id_tensor: tf.Tensor, labels: list[str]):
-    class_ids = class_id_tensor.numpy()
-    decoded = [[labels[i] for i in row] for row in class_ids]
-    return decoded
+def _decode_class_names(class_id_tensor: tf.Tensor, labels: dict[int,str]):
+    
+    labels_list = tf.constant([labels[key] for key in sorted(labels)], dtype=tf.string)
+    decoded_classes = tf.gather(labels_list,class_id_tensor)
+    
+    return decoded_classes
 
 def build_decoded_boxes(config: dict[str,Any], predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, priors: tf.Tensor):
     deploy_config = _read_deploy_config(config)
@@ -55,8 +57,8 @@ def build_decoded_boxes(config: dict[str,Any], predicted_offsets: tf.Tensor, pre
     nmsed_boxes,nmsed_scores, nmsed_classes, valid_detections = decode_and_nms(predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, priors = priors, variances = deploy_config['variances'],scores_thresh = deploy_config['score_thresh'], iou_thresh = deploy_config['iou_thresh'], top_k = deploy_config['per_class_top_k'], max_detections = deploy_config['max_detection'],image_meta = deploy_config['input_size'],use_sigmoid = deploy_config['use_sigmoid'])   
 
     # Getting the classes
-    classes = _load_label_map(Path('./voc_labels.txt'),use_sigmoid = deploy_config['use_sigmoid'])
+    classes = _load_label_map(deploy_config['labels_map'],use_sigmoid = deploy_config['use_sigmoid'])
 
     decoded_classes = _decode_class_names(nmsed_classes, classes)
 
-    return nmsed_boxes, nmsed_scores, nmsed_classes, decoded_classes
+    return nmsed_boxes, nmsed_scores, nmsed_classes, decoded_classes, classes
