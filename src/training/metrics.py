@@ -205,10 +205,18 @@ class VOCMAP(BaseMetric):
         return ap
 
 class COCOMAP(BaseMetric):
-    def __init__(self, iou_thresh,num_classes: int,name: str):
+    def __init__(self, iou_thresh: list[float] | None,num_classes: int,name: str):
         super().__init__(name = name)
-        self.iou_thresh = iou_thresh
         self.num_classes = num_classes
+
+        if iou_thresh is None:
+            iou_thresh = [0.5 + 0.05 * i for i in range(10)]
+
+        if isinstance(iou_thresh, (list, tuple)):
+            self.iou_thresh = [float(t) for t in iou_thresh]
+        else:
+            self.iou_thresh = [float(iou_thresh)]
+        
         # Initialize the pred & gt lists
         self._preds = []
         self._ground_truth = []
@@ -229,11 +237,170 @@ class COCOMAP(BaseMetric):
             )
 
     def compute(self):
-        results = {
-            "mAP@0.5": 0.2,
-        }
+        if len(self._ground_truth) == 0:
+            # No GT at all: define all metrics as 0
+            key = f"{self.name}/mAP@[{self.iou_thresh[0]:.2f}:{self.iou_thresh[-1]:.2f}]"
+            return {key: 0.0}
+
+        num_iou = len(self.iou_thresh)
+
+        # GT Structures per class
+        ground_truth_per_class = {c: {} for c in range(self.num_classes)}
+        num_pos_per_class = {c: 0 for c in range(self.num_classes)}
+
+        for image_id, gt_boxes, gt_labels in self._ground_truth:
+            # Copying the boxes for calculations
+            gt_boxes = np.asarray(gt_boxes,dtype = np.float32)
+            gt_labels = np.asarray(gt_labels,dtype = np.int32)
+
+            # Iterating over the boxes and their corresponding labels
+            for gt_box, gt_label in zip(gt_boxes, gt_labels):
+                class_num = int(gt_label)
+                if class_num == 0:
+                    # Background which is not needed
+                    continue
+
+                if image_id not in ground_truth_per_class[class_num]:
+                    # Initial creation of the images records
+                    ground_truth_per_class[class_num][image_id] = {
+                        "boxes": [],
+                    }
+
+                ground_truth_per_class[class_num][image_id]["boxes"].append(gt_box)
+                num_pos_per_class[class_num] = num_pos_per_class[class_num] + 1
+
+        for class_num in range(self.num_classes):
+            for image_id, data in ground_truth_per_class[class_num].items():
+                data['boxes'] = np.asarray(data['boxes'], dtype=np.float32)
+                
+        # Calculating the predictions per class
+        pred_per_class = {c: [] for c in range(self.num_classes)}
+
+        for image_id, pred_box, pred_scores, pred_labels in self._preds:
+            pred_box = np.asarray(pred_box,dtype = np.float32)
+            pred_scores = np.asarray(pred_scores,dtype = np.float32)
+            pred_labels = np.asarray(pred_labels,dtype = np.int32)
+
+            # Iterating through all the predictions
+            for bbox, score, label in zip(pred_box, pred_scores, pred_labels):
+                class_num = int(label)
+                if class_num == 0:
+                    # Background which is not needed
+                    continue
+
+                pred_per_class[class_num].append({"image_id": image_id, "box": bbox, "score": float(score)})
+
+        AP = np.full((self.num_classes, num_iou), np.nan, dtype=np.float32)
+
+        for class_num in range(1, self.num_classes):
+            preds_for_class = pred_per_class[class_num]
+            num_pos = num_pos_per_class[class_num]
+
+            if num_pos == 0:
+                # There was no ground truth box for this class
+                continue
+
+            if len(preds_for_class) == 0:
+                AP[class_num] = 0.0
+                continue
+
+            # Sorting the predictions by score
+            preds_for_class.sort(key = lambda data: data['score'],reverse = True)
+
+            for index, iou_thr in enumerate(self.iou_thresh):
+                detected_flags = {}
+                
+                for image_id, data in ground_truth_per_class[class_num].items():
+                    num_gt = data["boxes"].shape[0]
+                    detected_flags[image_id] = np.zeros(num_gt, dtype=bool)
+
+                TP = np.zeros(len(preds_for_class), dtype = np.float32)
+                FP = np.zeros(len(preds_for_class), dtype = np.float32)
+
+                for pred_index, pred in enumerate(preds_for_class):
+                    image_id = pred['image_id']
+                    bbox = np.asarray(pred['box'], dtype = np.float32)
+
+                    if image_id not in ground_truth_per_class[class_num]:
+                        FP[pred_index] = 1.0
+                        continue
+
+                    ground_truth_data = ground_truth_per_class[class_num][image_id]
+                    ground_truth_boxes = ground_truth_data['boxes']
+                    det_flags = detected_flags[image_id]
+
+                    iou_matrix = _box_iou_xyxy(bbox, ground_truth_boxes)
+                    if iou_matrix.size == 0:
+                        FP[pred_index] = 1.0
+                        continue
+
+                    max_iou_index = int(np.argmax(iou_matrix))
+                    max_iou = float(iou_matrix[max_iou_index])
+
+                    if max_iou >= iou_thr and not det_flags[max_iou_index]:
+                        TP[pred_index] = 1.0
+                        det_flags[max_iou_index] = True
+                    else:
+                        FP[pred_index] = 1.0
+
+                TP_cum = np.cumsum(TP)
+                FP_cum = np.cumsum(FP)
+
+                recall = TP_cum / float(num_pos)
+                precision = TP_cum / np.maximum(TP_cum + FP_cum, 1e-6) # division by zero safe guard
+
+                AP[class_num,index] = self._coco_ap_101(recall, precision)
+                
+        valid_classes  = [c for c in range(1, self.num_classes) if num_pos_per_class[c] > 0]
+
+        if len(valid_classes) == 0:
+            mAP = 0.0
+            ap50 = 0.0
+            ap75 = 0.0
+        else:
+            AP_valid = AP[valid_classes, :]
+            mAP = float(np.nanmean(AP_valid))
+            
+            ap50 = None
+            ap75 = None
+
+            if 0.5 in self.iou_thresh:
+                t50_idx = self.iou_thresh.index(0.5)
+                ap50 = float(np.nanmean(AP_valid[:, t50_idx]))
+            if 0.75 in self.iou_thresh:
+                t75_idx = self.iou_thresh.index(0.75)
+                ap75 = float(np.nanmean(AP_valid[:, t75_idx]))
+
+        key_main = f"{self.name}/mAP@[{self.iou_thresh[0]:.2f}:{self.iou_thresh[-1]:.2f}]"
+        results: dict[str, float] = {key_main: mAP}
+
+        if ap50 is not None:
+            results[f"{self.name}/AP@0.50"] = ap50
+        if ap75 is not None:
+            results[f"{self.name}/AP@0.75"] = ap75
 
         return results
+
+    def _coco_ap_101(self, recall: np.ndarray, precision: np.ndarray):
+        
+        if recall.size == 0:
+            return 0.0
+
+        rec = np.asarray(recall, dtype=np.float32)
+        prec = np.asarray(precision, dtype=np.float32)
+
+        recall_samples = np.linspace(0.0, 1.0, 101, dtype=np.float32)
+        precisions_interp = np.zeros_like(recall_samples)
+
+        for i, r in enumerate(recall_samples):
+            # precision at recall >= r
+            mask = rec >= r
+            if np.any(mask):
+                precisions_interp[i] = np.max(prec[mask])
+            else:
+                precisions_interp[i] = 0.0
+
+        return float(np.mean(precisions_interp))
   
 class MetricsManager:
     def __init__(self, metrics:list[BaseMetric], prefix: str | None = None):
