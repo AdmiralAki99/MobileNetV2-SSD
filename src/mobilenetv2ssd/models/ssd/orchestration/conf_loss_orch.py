@@ -31,7 +31,7 @@ def build_conf_loss(config: dict[str,Any], predicted_logits: tf.Tensor, classifi
 
     valid_labels = tf.where(tf.logical_not(ignore_mask),classification_targets,ignored_labels)
 
-    if loss_config['cls_loss_type'] == 'ce_softmax':
+    if loss_config['cls_loss_type'] == 'softmax_ce':
         per_class_loss = tf.map_fn(lambda inputs: softmax_cross_entropy_loss(inputs[0],inputs[1],reduction="none"),
                  elems = (predicted_logits, valid_labels),
                  fn_output_signature = tf.TensorSpec(shape=(None,), dtype=tf.float32)
