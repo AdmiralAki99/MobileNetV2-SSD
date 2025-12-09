@@ -488,4 +488,46 @@ def _box_iou_xyxy(box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
 
     return inter / union
 
+
+def convert_predictions_to_metric_format(nmsed_boxes, nmsed_scores, nmsed_classes, image_id, gt_boxes_xyxy, gt_labels, gt_valid_mask):
+    preds = []
+    gt = []
+
+    boxes = nmsed_boxes
+    scores = nmsed_scores
+    labels = nmsed_classes
+
+    gt_boxes = gt_boxes_xyxy
+    gt_labels = gt_labels
+    gt_masks = gt_valid_mask
+
+    image_ids = image_id
+
+    B = tf.shape(boxes)[0]
+
+    for i in range(B):
+        img_id = image_ids[i]
+
+        # Prediction boxes
+        pred_box = boxes[i]
+        pred_scores = scores[i]
+        pred_labels = labels[i]
+
+        preds.append({"image_id": img_id.numpy(),"boxes":   pred_box.numpy(), "scores":  pred_scores.numpy(),"labels":  pred_labels.numpy()})
+
+        # Ground truth box
+        gt_box = gt_boxes[i]
+        gt_label = gt_labels[i]
+        gt_mask = gt_masks[i]
+
+        gt_box = tf.boolean_mask(gt_box,gt_mask)
+        gt_label = tf.boolean_mask(gt_labels,gt_mask)
+
+        gt.append({"image_id": img_id.numpy(), "boxes":   gt_box.numpy(), "labels":  gt_label.numpy()})
+
+
+    return preds, gt
+        
+    
+
     
