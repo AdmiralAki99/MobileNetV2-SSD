@@ -3,7 +3,7 @@ from typing import Any
 
 from mobilenetv2ssd.models.ssd.model import SSD
 
-def _extract_information_from_train_config(config : dict[str, Any]):
+def _extract_information_from_model_config(config : dict[str, Any]):
     
     model_config = config['model']
     
@@ -31,7 +31,7 @@ def _extract_information_from_train_config(config : dict[str, Any]):
 
 def build_ssd_model(config: dict[str,Any], anchors_per_layer: list[int]):
     # Read from config
-    input_shape, alpha, backbone_type, ssd_name, num_classes, backbone_features, localization_config, classification_config,extra_levels, extra_base = _extract_information_from_train_config(config)
+    input_shape, alpha, backbone_type, ssd_name, num_classes, backbone_features, localization_config, classification_config,extra_levels, extra_base = _extract_information_from_model_config(config)
     
     # Creating the SSD model
     ssd = SSD(backbone_type = backbone_type, name = ssd_name, feature_maps = backbone_features, number_of_classes = num_classes, number_of_anchors_per_layer = anchors_per_layer, input_shape = tuple(input_shape), loc_head_configuration =localization_config , cls_head_configuration = classification_config, extra_levels = extra_levels, extra_base = extra_base, alpha = alpha)
