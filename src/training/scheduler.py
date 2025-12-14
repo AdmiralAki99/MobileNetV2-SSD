@@ -81,8 +81,9 @@ class ExponentialDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedul
 
 # Creating a scheduler
 
-class Scheduler:
+class Scheduler(tf.Module):
     def __init__(self, optimizer: tf.keras.optimizers.Optimizer, lr_schedule: tf.keras.optimizers.schedules.LearningRateSchedule, start_step: int = 0):
+        super().__init__(name="scheduler")
         self.optimizer = optimizer
         self.lr_schedule = lr_schedule
         self.current_step = tf.Variable(start_step, dtype=tf.int64, trainable = False)
