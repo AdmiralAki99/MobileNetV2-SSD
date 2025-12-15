@@ -86,10 +86,11 @@ class Scheduler(tf.Module):
         super().__init__(name="scheduler")
         self.optimizer = optimizer
         self.lr_schedule = lr_schedule
-        self.current_step = tf.Variable(start_step, dtype=tf.int64, trainable = False)
+        self.current_step = tf.Variable(start_step, dtype=tf.int64, trainable = False, name="current_step")
 
     @tf.function
     def apply_learning_rate(self):
+        
         learning_rate = self.lr_schedule(self.current_step)
         learning_rate = tf.cast(learning_rate, dtype=tf.float32)
         self.optimizer.learning_rate.assign(learning_rate)
@@ -102,6 +103,8 @@ class Scheduler(tf.Module):
         self.current_step.assign_add(1)
         
         learning_rate = self.lr_schedule(self.current_step)
+        
+        learning_rate = tf.cast(learning_rate, tf.float32)
         
         self.optimizer.learning_rate.assign(learning_rate)
         
