@@ -95,7 +95,7 @@
 - [ ] `training/optimizer.py`
 - [x] `training/scheduler.py`
 - [x] `training/checkpoints.py`
-- [🚧] `training/ema.py`
+- [x] `training/ema.py`
 - [ ] `training/amp.py`
 
 ### 📊 Metrics
