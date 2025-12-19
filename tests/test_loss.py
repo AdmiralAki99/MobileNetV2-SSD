@@ -423,8 +423,8 @@ def test_multibox_loss_no_positives_has_zero_loc_and_safe_normalization():
     tf.debugging.assert_near(out["cls_loss"], expected_cls, atol=1e-6, message="cls_loss mismatch for no-positives case")
 
     # By implementation, num_pos is the count; should be 0 here
-    tf.debugging.assert_equal(out["num_pos"], tf.constant(0, dtype=tf.int32), message="num_pos should be 0 for no-positives case")
-    tf.debugging.assert_equal(out["num_negative"], tf.constant(2, dtype=tf.int32), message="num_negative mismatch for no-positives case")
+    tf.debugging.assert_equal(out["raw_num_pos"],  tf.constant(0, dtype=tf.int32), message="num_pos should be 1 for no-positives case")
+    tf.debugging.assert_equal(out["raw_num_negative"], tf.constant(2, dtype=tf.int32), message="num_negative mismatch for no-positives case")
 
 
 def test_multibox_loss_no_negatives_is_still_well_defined():
@@ -464,7 +464,7 @@ def test_multibox_loss_no_negatives_is_still_well_defined():
     tf.debugging.assert_all_finite(out["loc_loss"], "loc_loss should be finite")
     tf.debugging.assert_all_finite(out["total_loss"], "total_loss should be finite")
 
-    tf.debugging.assert_equal(out["num_pos"], tf.constant(2, dtype=tf.int32), message="num_pos mismatch for no-negatives case")
-    tf.debugging.assert_equal(out["num_negative"], tf.constant(0, dtype=tf.int32), message="num_negative should be 0 for no-negatives case")
+    tf.debugging.assert_equal(out["raw_num_pos"], tf.constant(2, dtype=tf.int32), message="num_pos mismatch for no-negatives case")
+    tf.debugging.assert_equal(out["raw_num_negative"], tf.constant(0, dtype=tf.int32), message="num_negative should be 0 for no-negatives case")
 
     
