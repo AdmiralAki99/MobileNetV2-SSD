@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from mobilenetv2ssd.core.precision_config import PrecisionConfig, should_force_fp32
+
 def smooth_l1_loss(predicted_values, target, beta, reduction: str = "sum"):
 
     # Calculate the difference between the two values
@@ -11,7 +13,7 @@ def smooth_l1_loss(predicted_values, target, beta, reduction: str = "sum"):
     large_mask = tf.logical_not(small_mask)
     
     # Calculate where the formula needs to change
-    errors = tf.where(small_mask, 0.5*(difference**2)/beta,  difference)
+    errors = tf.where(small_mask, 0.5*(difference**2)/beta,  tf.zeros_like(difference))
     errors = tf.where(large_mask, absolute_difference - (0.5*beta),errors)
 
     # Sum over the four coordinates
@@ -106,7 +108,7 @@ def softmax_cross_entropy_loss(logits: tf.Tensor, labels: tf.Tensor, reduction: 
     else:
         return per_class_loss
     
-def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, target_offsets: tf.Tensor, target_labels: tf.Tensor, positive_mask: tf.Tensor, negative_mask: tf.Tensor, localization_weight: float, classification_weight: float,beta: float|None ,cls_loss_type: str ="softmax_ce", loc_loss_type: str = "smooth_l1", normalize_denom: str = "num_pos", reduction: str = "sum"):
+def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, target_offsets: tf.Tensor, target_labels: tf.Tensor, positive_mask: tf.Tensor, negative_mask: tf.Tensor, localization_weight: float, classification_weight: float,beta: float|None ,cls_loss_type: str ="softmax_ce", loc_loss_type: str = "smooth_l1", normalize_denom: str = "num_pos", reduction: str = "sum", precision_config: PrecisionConfig | None = None):
     # Calculate the mask for classification of anchors
     classification_mask = tf.logical_or(positive_mask,negative_mask)
 
@@ -115,6 +117,8 @@ def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, tar
     number_of_negatives = tf.reduce_sum(tf.cast(negative_mask,tf.int32))
 
     # Calculating Safe values
+    raw_number_of_positive = number_of_positives
+    raw_number_of_negative = number_of_negatives
     number_of_positives = tf.maximum(1,number_of_positives)
     number_of_negatives = tf.maximum(1,number_of_negatives)
     number_of_classifications = number_of_positives + number_of_negatives
@@ -161,13 +165,29 @@ def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, tar
     # The localization loss only looks at the positive 
     if loc_loss_type == "smooth_l1":
         if beta != None:
+            if should_force_fp32("loss_reduction", precision_config):
+                positive_offsets_flattened = tf.cast(positive_offsets_flattened, tf.float32)
+                positive_targets_flattened = tf.cast(positive_targets_flattened, tf.float32)
+                
             localization_raw = smooth_l1_loss(positive_offsets_flattened,positive_targets_flattened,beta = beta, reduction=reduction)
         else:
+            if should_force_fp32("loss_reduction", precision_config):
+                positive_offsets_flattened = tf.cast(positive_offsets_flattened, tf.float32)
+                positive_targets_flattened = tf.cast(positive_targets_flattened, tf.float32)
+                
             localization_raw = smooth_l1_loss(positive_offsets_flattened,positive_targets_flattened,beta = 1.0, reduction=reduction)
         
     elif loc_loss_type == "l1_loss":
+        if should_force_fp32("loss_reduction", precision_config):
+            positive_offsets_flattened = tf.cast(positive_offsets_flattened, tf.float32)
+            positive_targets_flattened = tf.cast(positive_targets_flattened, tf.float32)
+            
         localization_raw = l1_loss(positive_offsets_flattened,positive_targets_flattened,reduction=reduction)
     elif loc_loss_type == "l2_loss":
+        if should_force_fp32("loss_reduction", precision_config):
+            positive_offsets_flattened = tf.cast(positive_offsets_flattened, tf.float32)
+            positive_targets_flattened = tf.cast(positive_targets_flattened, tf.float32)
+            
         localization_raw = l2_loss(positive_offsets_flattened,positive_targets_flattened,reduction=reduction)
 
     # Normalize the losses
@@ -193,5 +213,8 @@ def multibox_loss(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, tar
         'loc_loss': localization_loss,
         'cls_loss': classification_loss,
         'num_pos': number_of_positives,
+        'raw_num_pos': raw_number_of_positive,
+        'raw_num_negative': raw_number_of_negative,
         'num_negative': number_of_negatives
     }
+    
