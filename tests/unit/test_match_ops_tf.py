@@ -3,7 +3,8 @@ import pytest
 
 from mobilenetv2ssd.models.ssd.ops.match_ops_tf import *
 
-## TODO: Integrate new changes
+import pytest
+pytestmark = pytest.mark.unit
 
 def test_match_priors():
     gt_boxes_xyxy = tf.constant(

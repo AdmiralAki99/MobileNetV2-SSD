@@ -2,6 +2,10 @@ import tensorflow as tf
 
 from mobilenetv2ssd.models.ssd.ops.postprocess_tf import _decode_boxes, decode_and_nms
 from mobilenetv2ssd.models.ssd.ops.box_ops_tf import cxcywh_toxyxy_core
+
+import pytest
+pytestmark = pytest.mark.unit
+
 def test_decode_boxes_zero_offsets_matches_prior_geometry():
     # If offsets are all zeros, decoded boxes should equal the prior boxes in xyxy form.
     pred_loc = tf.zeros((1, 3, 4), dtype=tf.float32)

@@ -3,6 +3,9 @@ import math
 
 from mobilenetv2ssd.models.mobilenet_v2.backbone import *
 
+import pytest
+pytestmark = pytest.mark.unit
+
 ## TODO: Integrate new changes
 
 # Testing the creation of the translation block

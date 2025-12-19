@@ -3,6 +3,9 @@ import tensorflow as tf
 
 from mobilenetv2ssd.models.ssd.ops.box_ops_tf import *
 
+import pytest
+pytestmark = pytest.mark.unit
+
 # Testing the core conversion functions
 def test_xyxy_to_cxcywh_core_simple():
     box_xyxy = tf.constant([[0.0,0.0,2.0,2.0]], dtype=tf.float32)

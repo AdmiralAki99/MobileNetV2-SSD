@@ -4,6 +4,9 @@ import math
 
 from mobilenetv2ssd.models.ssd.ops.encode_ops_tf import *
 
+import pytest
+pytestmark = pytest.mark.unit
+
 def _xyxy_from_cxcywh(cxcywh: np.ndarray) -> np.ndarray:
     cx, cy, w, h = cxcywh
     return np.array([cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0], dtype=np.float32)

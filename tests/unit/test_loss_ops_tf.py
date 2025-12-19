@@ -1,7 +1,9 @@
 import tensorflow as tf
-import pytest
 
 from mobilenetv2ssd.models.ssd.ops.loss_ops_tf import *
+
+import pytest
+pytestmark = pytest.mark.unit
 
 def test_smooth_l1_loss_sum():
     

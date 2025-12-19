@@ -4,10 +4,10 @@ import string
 
 from mobilenetv2ssd.models.ssd.ops.anchor_ops_tf import *
 
-# Disable eager execution for testing purposes
-# tf.compat.v1.disable_eager_execution()
+import pytest
+pytestmark = pytest.mark.unit
 
-# Test cases for calculate_feature_map_shapes function
+
 def test_calculate_feature_map_shapes_basic():
     image_shape = (300, 300)
     strides = [16, 32, 64]
