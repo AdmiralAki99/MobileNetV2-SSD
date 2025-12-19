@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, MaxPool2D, BatchNormalization, Activation, Add, ZeroPadding2D,AveragePooling2D, ReLU, DepthwiseConv2D, GlobalAveragePooling2D
 
-class StandardConvolutionBlock(tf.keras.Model):
+class StandardConvolutionBlock(tf.keras.layers.Layer):
     def __init__(self,output_channels = 32,stride = 2,alpha = 1.0,name = None):
         super().__init__(name=name)
         output_channel = max(1,int(output_channels*alpha)) # To scale the proportions to make them fit for different devices
@@ -58,7 +58,7 @@ class StandardConvolutionBlock(tf.keras.Model):
             
             
 
-class InvertedResidualBlock(tf.keras.Model):
+class InvertedResidualBlock(tf.keras.layers.Layer):
     def __init__(self,output_channels = 32, expansion_factor = 6, stride = 2, alpha = 1.0,name = None):
         super().__init__(name= name)
         self.output_channel = output_channels

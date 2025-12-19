@@ -34,7 +34,7 @@ class MobileNetV2(tf.keras.Model):
         self.bottleneck_15 = InvertedResidualBlock(output_channels=160, stride = 1, expansion_factor = 6, alpha = alpha, name="bottleneck_block_15")
         self.bottleneck_16 = InvertedResidualBlock(output_channels=160, stride = 1, expansion_factor = 6, alpha = alpha, name="bottleneck_block_16")
         self.bottleneck_17 = InvertedResidualBlock(output_channels=320, stride = 1, expansion_factor = 6, alpha = alpha, name="bottleneck_block_17")
-        self.conv_2 = Conv2D(1280, kernel_size=1, strides=1, padding="same",use_bias=False, name="conv_head")
+        self.conv_2 = Conv2D(self._make_divisible(int(round(1280 * alpha))) if alpha >= 1 else 1280, kernel_size=1, strides=1, padding="same",use_bias=False, name="conv_head")
         self.final_batch_norm = BatchNormalization(name="conv_head_bn")
         self.final_relu = ReLU(6.0, name="conv_head_relu")
 
@@ -176,18 +176,24 @@ class MobileNetV2(tf.keras.Model):
         else:
             raise ValueError(f"There is a mismatch between shapes: {input_shape} and {output_shape}")
         
+    def _make_divisible(self,v, divisor=8):
+        return max(divisor, int(v + divisor / 2) // divisor * divisor)
+        
         
         
 # Overarching Builder Function
-def build_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone",weights_dir: str | None = _DEFAULT_WEIGHTS_DIR):
+def build_backbone(input_shape=(224,224,3), alpha: float = 1.0, name="mobilenetv2_backbone",weights_dir: str | None = _DEFAULT_WEIGHTS_DIR):
     # First create the model
-    model = build_custom_mobilenetv2_backbone(input_shape=input_shape,alpha=alpha,name=name)
+    model = build_custom_mobilenetv2_backbone(input_shape=input_shape, alpha=alpha, name=name)
     
     # Now check if the model weights exist
     W = input_shape[0]
     H = input_shape[1]
     
-    weights_file_name = f"mobilenetv2_imagenet_notop_{W}x{H}.weights.h5"
+    ## TODO: Maybe look into hashing instead of raw stubs
+    
+    alpha_str = f"{alpha:.2f}".rstrip("0").rstrip(".")
+    weights_file_name = f"mobilenetv2_imagenet_notop_{W}x{H}_{alpha_str}.weights.h5"
     
     # Check if the directory exists
     weights_dir = Path(weights_dir)
@@ -225,7 +231,7 @@ def build_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbon
 
 
 # Builder Function
-def build_custom_mobilenetv2_backbone(input_shape=(224,224,3), alpha=1.0, name="mobilenetv2_backbone"):
+def build_custom_mobilenetv2_backbone(input_shape=(224,224,3), alpha: float =1.0, name="mobilenetv2_backbone"):
     input_layer = Input(shape=input_shape)
     mobilenetv2 = MobileNetV2(alpha=alpha, name=name)
     mobilenetv2.call(input_layer)
