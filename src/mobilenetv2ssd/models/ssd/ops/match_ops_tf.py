@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 from .box_ops_tf import cxcywh_toxyxy_core, iou_matrix_core
+from mobilenetv2ssd.core.precision_config import PrecisionConfig, should_force_fp32
 
 def _check_for_center_alignment(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor):
     
@@ -82,7 +83,7 @@ def _calculate_matches(iou_matrix: tf.Tensor,gt_boxes: tf.Tensor,positive_iou_th
         "num_pos": number_of_positive_priors,
     }
     
-def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, gt_valid_mask: tf.Tensor | None, positive_iou_thresh: float, negative_iou_thresh: float, max_pos_per_gt: list[int] | None, allow_low_qual_matches: bool = True, center_in_gt: bool = True , return_iou: bool = False):
+def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, gt_valid_mask: tf.Tensor | None, positive_iou_thresh: float, negative_iou_thresh: float, max_pos_per_gt: list[int] | None = None, allow_low_qual_matches: bool = True, center_in_gt: bool = True , return_iou: bool = False, precision_config: PrecisionConfig | None = None):
 
     priors_cxcywh = tf.reshape(priors_cxcywh, [-1, 4])
     gt_boxes_xyxy = tf.reshape(gt_boxes_xyxy, [-1, 4])
@@ -116,6 +117,11 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
 
     # Compute the IoU Matrix
     priors_xyxy = cxcywh_toxyxy_core(priors_cxcywh)
+    
+    if should_force_fp32("iou",precision_config):
+        valid_gt_boxes = tf.cast(valid_gt_boxes,tf.float32)
+        priors_xyxy = tf.cast(priors_xyxy,tf.float32)
+    
     iou_matrix = iou_matrix_core(valid_gt_boxes,priors_xyxy)
 
     if center_in_gt:

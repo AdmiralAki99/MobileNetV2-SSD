@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from mobilenetv2ssd.core.precision_config import PrecisionConfig, should_force_fp32
+
 @tf.function(
     input_signature = [
         tf.TensorSpec(shape=[None, 4], dtype = tf.float32),
@@ -367,6 +369,7 @@ def iou_matrix_core(boxes_1, boxes_2):
     tf.debugging.assert_equal(tf.shape(boxes_1)[-1], 4)
     tf.debugging.assert_rank(boxes_2, 2, message="boxes2 must be (N,4)")
     tf.debugging.assert_equal(tf.shape(boxes_2)[-1], 4)
+        
     # areas
     
     a_area = area_xyxy_core(boxes_1)
@@ -381,10 +384,12 @@ def iou_matrix_core(boxes_1, boxes_2):
 @tf.function(
     input_signature=[
         tf.TensorSpec([None, None, 4], tf.float32), 
-        tf.TensorSpec([None, None, 4], tf.float32), 
+        tf.TensorSpec([None, None, 4], tf.float32),
+         
     ]
 )
 def iou_matrix_batched(boxes_1, boxes_2):
+        
     # areas
     a_area = area_xyxy_batched(boxes_1)
     b_area = area_xyxy_batched(boxes_2)

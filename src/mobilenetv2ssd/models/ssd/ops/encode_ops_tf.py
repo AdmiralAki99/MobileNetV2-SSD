@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 from .box_ops_tf import xyxy_to_cxcywh_core
+from mobilenetv2ssd.core.precision_config import PrecisionConfig, should_force_fp32
 
 def _sanitize_boxes_xyxy(boxes_normalized: tf.Tensor):
     # Making sure the format of the boxes is correct
@@ -20,8 +21,12 @@ def _sanitize_boxes_xyxy(boxes_normalized: tf.Tensor):
 
     return tf.concat([x_min_clipped,y_min_clipped,x_max_clipped,y_max_clipped],axis=-1)
 
-def encode_boxes_core(gt_boxes_xyxy: tf.Tensor, priors_cxcywh: tf.Tensor, variance: tuple[float,float]):
+def encode_boxes_core(gt_boxes_xyxy: tf.Tensor, priors_cxcywh: tf.Tensor, variance: tuple[float,float], precision_config: PrecisionConfig | None = None):
     # Convert boxes to center coordinates
+    if should_force_fp32("box_encode_decode", precision_config):
+        gt_boxes_xyxy = tf.cast(gt_boxes_xyxy,tf.float32)
+        priors_cxcywh = tf.cast(priors_cxcywh,tf.float32)
+    
     gt_boxes_cxcywh = xyxy_to_cxcywh_core(gt_boxes_xyxy)
     
     gt_xc, gt_yc, gt_w, gt_h = tf.split(gt_boxes_cxcywh,num_or_size_splits = 4, axis=-1)
@@ -56,11 +61,11 @@ def encode_boxes_core(gt_boxes_xyxy: tf.Tensor, priors_cxcywh: tf.Tensor, varian
 
     return  offsets
 
-def encode_boxes_batch(matched_gt_xyxy: tf.Tensor,priors_cxcywh: tf.Tensor, variances: tuple[float,float]):
+def encode_boxes_batch(matched_gt_xyxy: tf.Tensor,priors_cxcywh: tf.Tensor, variances: tuple[float,float], precision_config: PrecisionConfig | None = None):
     # Need to create a function that encodes boxes by batch
     B = tf.shape(matched_gt_xyxy)[0]
 
     # Map over the entire batch
-    batched_offsets = tf.map_fn(lambda matched_boxes: encode_boxes_core(matched_boxes,priors_cxcywh,variances), elems=matched_gt_xyxy,fn_output_signature=tf.TensorSpec(shape=(None, 4), dtype=tf.float32))
+    batched_offsets = tf.map_fn(lambda matched_boxes: encode_boxes_core(matched_boxes,priors_cxcywh,variances,precision_config), elems=matched_gt_xyxy,fn_output_signature=tf.TensorSpec(shape=(None, 4), dtype=tf.float32))
 
     return batched_offsets

@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from mobilenetv2ssd.core.precision_config import PrecisionConfig, should_force_fp32
+
 def _decode_boxes(predicted_offsets: tf.Tensor, priors: tf.Tensor, variances: tf.Tensor):
     B = tf.shape(predicted_offsets)[0]
     N = tf.shape(predicted_offsets)[1]
@@ -149,8 +151,14 @@ def _pre_nms_top_k(boxes_xyxy: tf.Tensor, scores: tf.Tensor, top_k: int):
 
     return boxes_top_k, scores_top_k
 
-def decode_and_nms(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, priors: tf.Tensor, variances: tf.Tensor, scores_thresh: float, iou_thresh: float, top_k: int, max_detections: int, image_meta: dict| None, use_sigmoid: bool = False, **kwargs):
+def decode_and_nms(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, priors: tf.Tensor, variances: tf.Tensor, scores_thresh: float, iou_thresh: float, top_k: int, max_detections: int, image_meta: dict| None, use_sigmoid: bool = False, precision_config: PrecisionConfig | None = None, **kwargs):
     # Decoding the boxes
+    
+    if should_force_fp32("box_encode_decode",precision_config):
+        predicted_offsets = tf.cast(predicted_offsets, tf.float32)
+        priors = tf.cast(priors, tf.float32)
+        variances = tf.cast(variances, tf.float32)
+    
     boxes_xyxy = _decode_boxes(predicted_offsets = predicted_offsets, priors = priors, variances = variances)
 
     # Calculating the scores from the logits
@@ -162,6 +170,10 @@ def decode_and_nms(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, pr
 
     if 'pre_nms_top_k' in kwargs:
         boxes_xyxy, scores = _pre_nms_top_k(boxes_xyxy, scores, kwargs['pre_nms_top_k'])
+        
+    if should_force_fp32("nms",precision_config):
+        boxes_xyxy = tf.cast(boxes_xyxy, tf.float32)
+        scores = tf.cast(scores, tf.float32)
 
     # Preparing the inputs for NMS outputs
     nms_boxes, nms_scores = _prepare_nms_inputs(boxes_xyxy, scores)
