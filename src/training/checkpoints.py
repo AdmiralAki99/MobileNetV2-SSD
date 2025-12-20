@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import tensorflow as tf
 from typing import Any, Optional
 from pathlib import Path

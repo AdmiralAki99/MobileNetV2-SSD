@@ -26,4 +26,10 @@ where = ["src"]
 minversion = "8.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-ra"
+addopts = "-ra -m 'not integration and not regression'"
+
+markers = [
+  "unit: fast, deterministic unit tests",
+  "integration: slower tests that touch multiple components",
+  "regression: tests that lock down previously-broken behavior"
+]
