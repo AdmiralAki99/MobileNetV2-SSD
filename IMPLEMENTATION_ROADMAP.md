@@ -42,8 +42,8 @@
 ## 🧠 3. Model Components
 
 ### 🧩 MobileNetV2 Backbone
-- [✅] `mobilenet_v2/blocks.py`
-- [✅] `mobilenet_v2/backbone.py`
+- [x] `mobilenet_v2/blocks.py`
+- [x] `mobilenet_v2/backbone.py`
 
 ### 🧮 SSD Heads & Utils
 - [x] `ssd/ops/box_ops_tf.py`
@@ -60,7 +60,7 @@
 - [x] `ssd/fpn.py` (Feature Pyramid Network)
 - [x] `ssd/model.py` ( SSD Model Creation)
 
-- [✅] `factory.py` (Model Factory Pattern)
+- [x] `factory.py` (Model Factory Pattern)
 
 ---
 
@@ -71,15 +71,15 @@
   → Builds priors grid from config
 
 ### 🎯 Targets & Matching
-- [✅] `orchestration/targets_orch.py`  
+- [x] `orchestration/targets_orch.py`  
   → Match GTs to priors, encode offsets
 
 ### ⚖️ Loss & HNM
-- [✅] `orchestration/loss_orch.py`  
+- [x] `orchestration/loss_orch.py`  
   → Combines cls/loc losses + normalization
-- [✅] `orchestration/conf_loss.py`  
+- [x] `orchestration/conf_loss.py`  
   → Per anchor loss for the predictions
-- [✅] `orchestration/hard_neg_orch.py`  
+- [x] `orchestration/hard_neg_orch.py`  
   → Select negatives via OHEM ratio
 
 ---
@@ -87,7 +87,7 @@
 ## 🚀 5. Training Subsystem
 
 ### 🔁 Core
-- [✅] `training/engine.py` (train_one_epoch, evaluate, fit)
+- [🚧] `training/engine.py` (train_one_epoch, evaluate, fit)
 	- [x] `training_step` (Training Over a batch)
 	- [x] `train_one_epoch` (Training over one epoch)
 	- [ ] `evaluate` (Evaluate over validation dataset)
@@ -96,7 +96,7 @@
 - [x] `training/scheduler.py`
 - [x] `training/checkpoints.py`
 - [x] `training/ema.py`
-- [ ] `training/amp.py`
+- [x] `training/amp.py`
 
 ### 📊 Metrics
 - [✅] `training/metrics.py` (VOC mAP@0.5)
@@ -110,14 +110,15 @@
 ## 🧪 6. Tests & Validation
 
 ### ✅ Unit Tests
-- [✅] `test_box_ops_tf.py`
-- [✅] `test_anchors_tf.py`
-- [✅] `test_losses_tf.py`
-- [🚧] `test_matcher_tf.py`
-- [🚧] `test_postprocess_tf.py`
-- [🚧] `test_targets_orch.py`
-- [🚧] `test_loss_orch.py`
-- [🚧] `test_hard_neg_orch.py`
+- [x] `test_box_ops_tf.py`
+- [x] `test_anchors_tf.py`
+- [x] `test_losses_tf.py`
+- [x] `test_matcher_tf.py`
+- [x] `test_postprocess_tf.py`
+- [x] `test_targets_orch.py`
+- [x] `test_loss_orch.py`
+- [x] `test_hard_neg_orch.py`
+- [x] `test_amp_tf.py`
 
 ### 🧩 Integration Tests
 - [📝] Synthetic batch end-to-end (priors → match → loss → grad)
