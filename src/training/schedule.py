@@ -79,79 +79,54 @@ class ExponentialDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedul
 
         return learning_rate          
 
-# Creating a scheduler
+# Creating a Learning Rate Schedule Factory
 
-class Scheduler(tf.Module):
-    def __init__(self, optimizer: tf.keras.optimizers.Optimizer, lr_schedule: tf.keras.optimizers.schedules.LearningRateSchedule, start_step: int = 0):
-        super().__init__(name="scheduler")
-        self.optimizer = optimizer
-        self.lr_schedule = lr_schedule
-        self.current_step = tf.Variable(start_step, dtype=tf.int64, trainable = False, name="current_step")
+class LearningRateSchedulerFactory:
+    @staticmethod
+    def build(config: dict[str, Any]):
+        lr_schedule_config = LearningRateSchedulerFactory._create_scheduler_config_from_main_config(config)
 
-    @tf.function
-    def apply_learning_rate(self):
-        
-        learning_rate = self.lr_schedule(self.current_step)
-        learning_rate = tf.cast(learning_rate, dtype=tf.float32)
-        self.optimizer.learning_rate.assign(learning_rate)
-        
-        return learning_rate
-        
-    @tf.function   
-    def step(self):
-        
-        self.current_step.assign_add(1)
-        
-        learning_rate = self.lr_schedule(self.current_step)
-        
-        learning_rate = tf.cast(learning_rate, tf.float32)
-        
-        self.optimizer.learning_rate.assign(learning_rate)
-        
-        return learning_rate
+        lr_schedule = LearningRateSchedulerFactory._build_learning_schedule(lr_schedule_config)
 
-def create_scheduler_config_from_main_config(config: dict[str,Any]):
-    scheduler = config['train'].get('scheduler')
-    warmup_config = scheduler.get('warmup', {})
-    step_config = scheduler.get('step', {})
-    multistep_config = scheduler.get('multistep', {})
+        return lr_schedule
+        
+    @staticmethod
+    def _create_scheduler_config_from_main_config(config: dict[str,Any]):
+        scheduler = config['train'].get('scheduler')
+        warmup_config = scheduler.get('warmup', {})
+        step_config = scheduler.get('step', {})
+        multistep_config = scheduler.get('multistep', {})
     
-    schedule_config = {
-        'learning_schedule': scheduler.get('name',"constant"),
-        'base_learning_rate': scheduler.get('base_lr', 0.1),
-        'mininum_learning_rate': scheduler.get('min_lr', 0.001),
-        'total_steps': scheduler.get('total_steps', None),
-        'warmup_epochs': warmup_config.get('epochs',10),
-        'warmup_steps': warmup_config.get('steps', 15),
-        'warmup_enabled': warmup_config.get('enabled',True),
-        'warmup_start_factor': warmup_config.get('start_factor',0.1),
-        'warmup_end_factor': warmup_config.get('end_factor',0.1),
-        'warmup_mode': warmup_config.get('mode',0.1),
-        'step_drop_every_epochs': step_config.get('drop_every_epochs', None),
-        'step_gamma': step_config.get('gamma', None),
-        'multistep_milestones': multistep_config.get('milestones_epochs', [])
-    }
-    return schedule_config
-
-def build_learning_schedule(config: dict[str,Any]):
-    # Need to select the correct learning schedule
-    if config['learning_schedule'] == 'cosine_warmup':
-        learning_schedule = CosineWarmupSchedule(base_learning_rate = config['base_learning_rate'], minimum_learning_rate = config['mininum_learning_rate'], warmup_steps = config['warmup_steps'], total_steps = config['total_steps'])
-    elif config['learning_schedule'] == 'step_decay':
-        learning_schedule = StepDecaySchedule(base_learning_rate = config['base_learning_rate'], gamma = config['step_gamma'], milestones = config['multistep_milestones'])
-    elif config['learning_schedule'] == 'exponential_decay':
-        learning_schedule = ExponentialDecaySchedule(base_learning_rate = config['base_learning_rate'], gamma = config['step_gamma'], decay_interval = config['step_drop_every_epochs'])
-    else:
-        learning_schedule = ConstantLearningSchedule(base_learning_rate = config['base_learning_rate'])
-
-    return learning_schedule
-
-def build_scheduler(config: dict[str,Any], optimizer: tf.keras.optimizers):
+        schedule_config = {
+            'learning_schedule': scheduler.get('name',"constant"),
+            'base_learning_rate': scheduler.get('base_lr', 0.1),
+            'mininum_learning_rate': scheduler.get('min_lr', 0.001),
+            'total_steps': scheduler.get('total_steps', None),
+            'warmup_epochs': warmup_config.get('epochs',10),
+            'warmup_steps': warmup_config.get('steps', 15),
+            'warmup_enabled': warmup_config.get('enabled',True),
+            'warmup_start_factor': warmup_config.get('start_factor',0.1),
+            'warmup_end_factor': warmup_config.get('end_factor',0.1),
+            'warmup_mode': warmup_config.get('mode',0.1),
+            'step_drop_every_epochs': step_config.get('drop_every_epochs', None),
+            'step_gamma': step_config.get('gamma', None),
+            'multistep_milestones': multistep_config.get('milestones_epochs', [])
+        }
+        
+        return schedule_config
     
-    scheduler_config = create_scheduler_config_from_main_config(config)
+    @staticmethod
+    def _build_learning_schedule(config: dict[str,Any]):
+        # Need to select the correct learning schedule
+        if config['learning_schedule'] == 'cosine_warmup':
+            learning_schedule = CosineWarmupSchedule(base_learning_rate = config['base_learning_rate'], minimum_learning_rate = config['mininum_learning_rate'], warmup_steps = config['warmup_steps'], total_steps = config['total_steps'])
+        elif config['learning_schedule'] == 'step_decay':
+            learning_schedule = StepDecaySchedule(base_learning_rate = config['base_learning_rate'], gamma = config['step_gamma'], milestones = config['multistep_milestones'])
+        elif config['learning_schedule'] == 'exponential_decay':
+            learning_schedule = ExponentialDecaySchedule(base_learning_rate = config['base_learning_rate'], gamma = config['step_gamma'], decay_interval = config['step_drop_every_epochs'])
+        elif config['learning_schedule'] == 'constant':
+            learning_schedule = ConstantLearningSchedule(base_learning_rate = config['base_learning_rate'])
+        else:
+            raise ValueError(f"Invalid Learning Rate Schedule: {config['learning_schedule']}")
 
-    learning_schedule = build_learning_schedule(scheduler_config)
-
-    scheduler = Scheduler(optimizer = optimizer, lr_schedule = learning_schedule, start_step = 10)
-
-    return scheduler
+        return learning_schedule

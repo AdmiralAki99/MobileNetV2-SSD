@@ -93,7 +93,7 @@
 	- [ ] `evaluate` (Evaluate over validation dataset)
 	- [ ] `fit` (Train over epochs and evaluate after every epoch)
 - [ ] `training/optimizer.py`
-- [x] `training/scheduler.py`
+- [x] `training/schedule.py`
 - [x] `training/checkpoints.py`
 - [x] `training/ema.py`
 - [x] `training/amp.py`
