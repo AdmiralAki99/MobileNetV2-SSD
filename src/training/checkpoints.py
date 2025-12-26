@@ -4,10 +4,8 @@ from pathlib import Path
 import hashlib
 import json
 
-from .scheduler import Scheduler
-
 class CheckpointManager:
-    def __init__(self, checkpoint_config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, scheduler: Scheduler, ema: Optional[Any], is_main_node: bool = True):
+    def __init__(self, checkpoint_config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, ema: Optional[Any], is_main_node: bool = True):
         self._model = model
         self._optimizer = optimizer
         
@@ -30,7 +28,6 @@ class CheckpointManager:
             raise ValueError("The value for the mode is wrong and should be either 'max' or 'min'")
         
         self._ema = ema
-        self._sched = scheduler
 
         # Saving the main status (rank = 0) to stop potential I/O problems when using DDP
         self._is_main = is_main_node
@@ -44,7 +41,6 @@ class CheckpointManager:
         # Building the checkpoint bundle for the manager to store
         checkpoint_dict = {
             'model': self._model,
-            'scheduler': self._sched,
             'epoch': self._epoch_var,
             'global_step': self._global_step_var,
             'best_epoch': self._best_epoch_var,
@@ -244,10 +240,10 @@ def _create_checkpoint_directory_fingerprint(config: dict[str,Any]):
         'mode': config['checkpoint'].get('mode', 'max')
     }
 
-def build_checkpoint_manager(config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, scheduler: Scheduler, ema: Optional[Any], is_main_node: bool =True):
+def build_checkpoint_manager(config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, ema: Optional[Any], is_main_node: bool =True):
+    
     checkpoint_config = _create_checkpoint_directory_fingerprint(config)
 
-    checkpoint_manager = CheckpointManager(checkpoint_config, model, optimizer, scheduler, ema= ema, is_main_node= is_main_node)
+    checkpoint_manager = CheckpointManager(checkpoint_config, model, optimizer, ema= ema, is_main_node= is_main_node)
 
     return checkpoint_manager
-    
