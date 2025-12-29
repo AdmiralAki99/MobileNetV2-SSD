@@ -26,7 +26,7 @@
 ## 📊 2. Datasets & Transforms
 
 ### 📂 Datasets
-- [ ] `datasets/base.py` (abstract)
+- [x] `datasets/base.py` (abstract)
 - [ ] `datasets/voc.py`
 - [📝] `datasets/coco.py`
 - [🚧] `datasets/transforms_tf.py` (augmentations for tf.data)
@@ -92,7 +92,7 @@
 	- [x] `train_one_epoch` (Training over one epoch)
 	- [ ] `evaluate` (Evaluate over validation dataset)
 	- [ ] `fit` (Train over epochs and evaluate after every epoch)
-- [ ] `training/optimizer.py`
+- [x] `training/optimizer.py`
 - [x] `training/schedule.py`
 - [x] `training/checkpoints.py`
 - [x] `training/ema.py`
