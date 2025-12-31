@@ -55,7 +55,7 @@ class BaseDetectionDataset(ABC):
         return labels
 
     @abstractmethod
-    def __len__(self) -> int:
+    def __len__(self):
         raise NotImplementedError
 
     @abstractmethod
