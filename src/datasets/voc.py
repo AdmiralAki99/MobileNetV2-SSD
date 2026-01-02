@@ -116,3 +116,10 @@ class VOCDataset(BaseDetectionDataset):
 
         return labels
         
+        
+def build_voc_dataset(config: dict[str, Any], split: str, transform: None):
+
+    dataset = VOCDataset(config, split = split, transform = transform)
+
+    return dataset
+    
