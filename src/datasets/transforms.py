@@ -1,6 +1,22 @@
 import tensorflow as tf
 from typing import Any
 
+class Compose:
+    def __init__(self, transforms: list[Any]):
+        self._transforms = transforms
+
+    def __call__(self, image, target):
+        for transform in self._transforms:
+            image, target = transform(image,target)
+
+            if image is None:
+                raise RuntimeError(f"{transform} returned image=None")
+
+            if target is None or "boxes" not in target or "labels" not in target:
+                raise RuntimeError(f"{transform} returned invalid target")
+
+        return image, target
+
 class PhotometricDistort:
     def __init__(self, p: float =1.0, brightness_delta: float = 0.125, contrast_range: tuple[float, float] = (0.5, 1.5), saturation_range: tuple[float, float] = (0.5,1.5), hue_delta: float = 0.05, channel_swap: bool = False, seed: int| None = None):
         self._p = p
@@ -21,43 +37,13 @@ class PhotometricDistort:
             image = tf.cond(random_num < self._p, lambda: self.distort_image(image), lambda: image)
         else:
             image = self.distort_image(image)
-        
-        # Convert image to float
-        image = self.to_float(image)
-
-        # Add random brightness (Brightens & Darkens Image)
-        brightness_constant = tf.random.uniform([], minval = -self._brightness_delta, maxval = self._brightness_delta)
-        image = image + brightness_constant
-
-        # Randomly change contrast in the image
-        contrast_factor = tf.random.uniform([], minval = self._contrast_range[0], maxval = self._contrast_range[1])
-        image = image * contrast_factor
-
-        # Changing the image from RGB to HSV
-        
-        image_hsv = tf.image.rgb_to_hsv(image)
-        H = image_hsv[:,:,0]
-        S = image_hsv[:,:,1]
-        V = image_hsv[:,:,2]
-        
-        # Randomly saturation factor in the image
-        saturation_constant = tf.random.uniform([], minval = self._saturation_range[0], maxval = self._saturation_range[1])
-        S = S * saturation_constant
-
-        # Offsetting the Hue factor to change the tone
-        hue_constant = tf.random.uniform([], minval = -self._hue_delta, maxval = self._hue_delta)
-        hue_factor = tf.constant([hue_constant, 0.0, 0.0], dtype=tf.float32)
-        image_hsv = image_hsv + hue_factor
-
-        # Channel swapping
-        image = tf.image.hsv_to_rgb(image_hsv)
 
         return image, target
 
     def distort_image(self, image):
-        image = self.determine_outcome(lambda x: tf.image.random_brightness(x, self.brightness_delta,seed = self.seed), image)
+        image = self.determine_outcome(lambda x: tf.image.random_brightness(x, self._brightness_delta,seed = self._seed), image)
 
-        contrast_order = tf.random.uniform([], 0.0, 1.0, seed=self.seed) < 0.5
+        contrast_order = tf.random.uniform([], 0.0, 1.0, seed=self._seed) < 0.5
 
         image = tf.cond(contrast_order, lambda: self.contrast_first(image), lambda: self.contrast_last(image))
 
@@ -67,7 +53,32 @@ class PhotometricDistort:
         return image
 
     def determine_outcome(self, function, image):
-        random_num = tf.random.uniform([], 0.0, 1.0, seed=self.seed)
+        random_num = tf.random.uniform([], 0.0, 1.0, seed=self._seed)
+        return tf.cond(random_num < 0.5, lambda: function(image), lambda: image)
+    
+    def contrast_first(self,image):
+        image = self.determine_outcome(lambda x: tf.image.random_contrast(x, self._contrast_range[0], self._contrast_range[1], seed=self._seed), image)
+        image = self.determine_outcome(lambda x: tf.image.random_saturation(x, self._saturation_range[0], self._saturation_range[1], seed=self._seed), image)
+        image = self.determine_outcome(lambda x: tf.image.random_hue(x, self._hue_delta, seed=self._seed), image)
+
+        return image
+
+    def contrast_last(self,image):
+        image = self.determine_outcome(lambda x: tf.image.random_saturation(x, self._saturation_range[0], self._saturation_range[1], seed=self._seed), image)
+        image = self.determine_outcome(lambda x: tf.image.random_hue(x, self._hue_delta, seed=self._seed), image)
+        image = self.determine_outcome(lambda x: tf.image.random_contrast(x, self._contrast_range[0], self._contrast_range[1], seed=self._seed), image)
+
+        return image
+
+    def random_channel_swap(self, image):
+        perm = tf.random.shuffle(tf.constant([0, 1, 2]), seed=self._seed)
+        return tf.gather(image, perm, axis=-1)
+
+    def to_float(self, image):
+        return tf.cast(image, dtype = tf.float32)
+
+    def determine_outcome(self, function, image):
+        random_num = tf.random.uniform([], 0.0, 1.0, seed=self._seed)
         return tf.cond(random_num < 0.5, lambda: function(image), lambda: image)
 
     def contrast_first(self, image):
