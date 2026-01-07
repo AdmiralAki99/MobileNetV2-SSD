@@ -303,3 +303,110 @@ class ClipAndFilterBoxes:
 
         return image, target
     
+def build_augmentation_config(config: dict[str, Any]):
+    augment_opts = config['data'].get('augment', {})
+    augment_params = augment_opts.get('params', {})
+
+    augment_config = {
+        'enabled' : augment_opts.get('enabled', False),
+        'pipeline': augment_opts.get('pipeline', ['photometric_distort','random_flip','resize','sanitize_boxes','normalize']),
+        'params': {
+            'random_flip': {
+                'enabled': augment_params.get('random_flip', {}).get('enabled', False),
+                'prob': augment_params.get('random_flip', {}).get('prob', 0.1),
+                'direction': augment_params.get('random_flip', {}).get('direction', 'horizontal'),
+            },
+            'random_iou_crop': {
+                'enabled': augment_params.get('random_iou_crop', {}).get('enabled', False),
+                'prob': augment_params.get('random_iou_crop', {}).get('prob', 0.1),
+                'min_iou_choices': augment_params.get('random_iou_crop', {}).get('min_iou_choices', []),
+                'min_scale': augment_params.get('random_iou_crop', {}).get('min_scale', 0.3),
+                'max_scale': augment_params.get('random_iou_crop', {}).get('max_scale', 1.0),
+                'max_attempts': augment_params.get('random_iou_crop', {}).get('max_attempts', 50),
+                'fallback': augment_params.get('random_iou_crop', {}).get('fallback', 'original'),
+            },
+            'random_expand': {
+                'enabled': augment_params.get('random_expand', {}).get('enabled', False),
+                'prob': augment_params.get('random_expand', {}).get('prob', 0.1),
+                'max_ratio': augment_params.get('random_expand', {}).get('max_ratio', 3.0),
+                'fill': augment_params.get('random_expand', {}).get('fill', 'mean'),
+                'value': augment_params.get('random_expand', {}).get('value', [0.485, 0.456, 0.406]),
+            },
+            'photometric_distort': {
+                'enabled': augment_params.get('photometric_distort', {}).get('enabled', False),
+                'prob': augment_params.get('photometric_distort', {}).get('prob', 0.1),
+                'brightness': augment_params.get('photometric_distort', {}).get('brightness', 0.125),
+                'contrast': augment_params.get('photometric_distort', {}).get('contrast', [0.5, 1.5]),
+                'saturation': augment_params.get('photometric_distort', {}).get('saturation', [0.5, 1.5]),
+                'hue': augment_params.get('photometric_distort', {}).get('hue', 0.5),
+                'random_order': augment_params.get('photometric_distort', {}).get('random_order', True),
+            },
+            'resize': {
+                'enabled': augment_params.get('resize', {}).get('enabled', False),
+                'size': augment_params.get('resize', {}).get('size', [300, 300]),
+                'mode': augment_params.get('resize', {}).get('mode', 'stretch'),
+                'interp': augment_params.get('resize', {}).get('interp', 'bilinear'),
+            },
+            'sanitize_boxes': {
+                'enabled': augment_params.get('sanitize_boxes', {}).get('enabled', False),
+                'clip': augment_params.get('sanitize_boxes', {}).get('clip', False),
+                'min_size': augment_params.get('sanitize_boxes', {}).get('min_size', 1),
+                'min_size_mode': augment_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
+            },
+            'normalize': {
+                'enabled': augment_params.get('normalize', {}).get('enabled', False),
+                'mean': augment_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
+                'std': augment_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
+            }
+        }
+    }
+
+    return augment_config
+
+def build_transforms(config: dict[str, Any]):
+    augment_config = build_augmentation_config(config)
+
+    # Building the config based on the pipeline
+    transform_list = []
+    for key in augment_config['pipeline']:
+        if not augment_config['params'][key]['enabled']:
+            continue
+
+        # Parse the config based on the type
+        match key:
+            case 'random_flip':
+                if augment_config['params'][key]['direction'] == 'horizontal':
+                    flip = RandomHorizontalFlip(p = augment_config['params'][key]['prob'])
+                else:
+                    pass
+
+                transform_list.append(flip)
+            case 'random_iou_crop':
+                pass
+            case 'random_expand':
+                pass
+            case 'photometric_distort':
+                p = augment_config['params'][key]['prob']
+                brightness_delta = augment_config['params'][key]['brightness']
+                contrast_range = augment_config['params'][key]['contrast']
+                saturation_range = augment_config['params'][key]['saturation']
+                hue_delta = augment_config['params'][key]['hue']
+                channel_swap = augment_config['params'][key]['random_order']
+                transform_list.append(PhotometricDistort(p = p, brightness_delta = brightness_delta, contrast_range = contrast_range,saturation_range = saturation_range,hue_delta = hue_delta, channel_swap = channel_swap))
+            case 'resize':
+                target_size = augment_config['params'][key]['size']
+                mode = augment_config['params'][key]['mode']
+                transform_list.append(Resize(size = tuple(target_size), mode = mode))
+            case 'sanitize_boxes':
+                min_size = augment_config['params'][key]['min_size']
+                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
+            case 'normalize':
+                mean = augment_config['params'][key]['mean']
+                std = augment_config['params'][key]['std']
+                transform_list.append(Normalize(mean = mean, std = std))
+            case _:
+                raise ValueError("Wrong Transform type present in the config")
+
+    compose = Compose(transforms = transform_list)
+
+    return compose
