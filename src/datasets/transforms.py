@@ -348,6 +348,33 @@ class ClipAndFilterBoxes:
 
 
         return image, target
+
+def build_preprocess_pipeline(config: dict[str, Any]):
+    preprocesss_opts = config['data'].get('preprocess', {})
+
+    preprocess_config = {
+        'input_size': tuple(preprocesss_opts.get('input_size', [224,224])),
+        'resize': {
+            'mode': preprocesss_opts.get('resize', {}).get('mode', 'stretch'),
+            'interp': preprocesss_opts.get('resize', {}).get('interp', 'bilinear'),
+        },
+        'padding': preprocesss_opts.get('pad', {}).get('value', 0),
+        'image': {
+            'to_float32': preprocesss_opts.get('image', {}).get('to_float32', True),
+            'scale': preprocesss_opts.get('image', {}).get('scale', '0_1'),
+        },
+        'boxes': {
+            'input_format': preprocesss_opts.get('boxes', {}).get('format_in', 'xyxy_pixels'),
+            'output_format': preprocesss_opts.get('boxes', {}).get('format_out', 'xyxy_norm'),
+            'clip': preprocesss_opts.get('boxes', {}).get('clip', True),
+            'min_size': preprocesss_opts.get('boxes', {}).get('min_size', 1),
+            'allow_empty': preprocesss_opts.get('boxes', {}).get('allow_empty', True),
+            'max_num': preprocesss_opts.get('boxes', {}).get('max_num', None),
+        },
+        'pipeline': preprocesss_opts.get('standardize_pipeline', ['to_float32', 'scale_01'])
+    }
+
+    return preprocess_config
     
 def build_augmentation_config(config: dict[str, Any]):
     augment_opts = config['data'].get('augment', {})
@@ -355,6 +382,7 @@ def build_augmentation_config(config: dict[str, Any]):
 
     augment_config = {
         'enabled' : augment_opts.get('enabled', False),
+        'output_box_norm': augment_opts.get('output_box_norm', False),
         'pipeline': augment_opts.get('pipeline', ['photometric_distort','random_flip','resize','sanitize_boxes','normalize']),
         'params': {
             'random_flip': {
@@ -412,8 +440,21 @@ def build_augmentation_config(config: dict[str, Any]):
 def build_transforms(config: dict[str, Any]):
     augment_config = build_augmentation_config(config)
 
+    preprocess_config = build_preprocess_pipeline(config)
+
     # Building the config based on the pipeline
     transform_list = []
+    # Iterating over the preprocess config
+    for preprocess_transform in preprocess_config['pipeline']:
+         match preprocess_transform:
+            case 'to_float32':
+                float_transform = ToFloat32()
+                transform_list.append(float_transform)
+            case 'scale_01':
+                scale = Scale01()
+                transform_list.append(scale)
+
+    # Iterating over the augmentation transforms
     for key in augment_config['pipeline']:
         if not augment_config['params'][key]['enabled']:
             continue
@@ -452,6 +493,10 @@ def build_transforms(config: dict[str, Any]):
                 transform_list.append(Normalize(mean = mean, std = std))
             case _:
                 raise ValueError("Wrong Transform type present in the config")
+
+    if augment_config['output_box_norm']:
+        normalize_boxes = NormalizeBoundingBoxes()
+        transform_list.append(normalize_boxes)
 
     compose = Compose(transforms = transform_list)
 
