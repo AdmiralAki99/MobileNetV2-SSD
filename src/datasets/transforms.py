@@ -1,6 +1,52 @@
 import tensorflow as tf
 from typing import Any
 
+# Standardization Functions
+class ToFloat32:
+    def __init__(self, image_precision: tf.dtypes.DType = tf.float32, target_precision:tf.dtypes.DType = tf.float16):
+        if not isinstance(image_precision, tf.dtypes.DType) or not isinstance(target_precision, tf.dtypes.DType):
+            raise ValueError("The precision is not a Tensorflow dtype")
+        
+        # Float Precision Options    
+        self._image_dtype = image_precision
+        self._target_dtype = target_precision
+
+    def __call__(self, image, target):
+       # Converting the image from uint8 to float32
+        image = tf.cast(image, dtype = self._image_dtype)
+        target['boxes'] = tf.constant(target['boxes'], dtype = self._target_dtype)
+        target['labels'] = tf.cast(target['labels'], dtype = tf.int32)
+
+        return image, target
+    
+class Scale01:
+    def __init__(self):
+        pass
+    def __call__(self, image, target):
+        # Scale the image
+        image = image / 255
+            
+        return image, target
+    
+class NormalizeBoundingBoxes:
+    def __init__(self):
+        pass
+
+    def __call__(self, image, target):
+        # Scale the Boxes
+        width, height = target['orig_size']
+        x1, y1, x2, y2 = tf.split(target['boxes'], num_or_size_splits = 4, axis = -1)
+
+        x1 = x1 / tf.cast(height,dtype = target['boxes'].dtype)
+        y1 = y1 / tf.cast(width,dtype = target['boxes'].dtype)
+        x2 = x2 / tf.cast(height,dtype = target['boxes'].dtype)
+        y2 = y2 / tf.cast(width,dtype = target['boxes'].dtype)
+
+        boxes = tf.concat([ x1, y1, x2, y2],axis=-1)
+        target['boxes'] = boxes
+            
+        return image, target
+
 class Compose:
     def __init__(self, transforms: list[Any]):
         self._transforms = transforms
