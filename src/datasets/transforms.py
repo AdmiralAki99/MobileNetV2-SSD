@@ -3,7 +3,7 @@ from typing import Any
 
 # Standardization Functions
 class ToFloat32:
-    def __init__(self, image_precision: tf.dtypes.DType = tf.float32, target_precision:tf.dtypes.DType = tf.float16):
+    def __init__(self, image_precision: tf.dtypes.DType = tf.float32, target_precision:tf.dtypes.DType = tf.float32):
         if not isinstance(image_precision, tf.dtypes.DType) or not isinstance(target_precision, tf.dtypes.DType):
             raise ValueError("The precision is not a Tensorflow dtype")
         
@@ -34,13 +34,17 @@ class NormalizeBoundingBoxes:
 
     def __call__(self, image, target):
         # Scale the Boxes
-        width, height = target['orig_size']
+        if 'resize_info' in target:
+            height, width = target['resize_info']
+        else:
+            height, width = target['orig_size']
+            
         x1, y1, x2, y2 = tf.split(target['boxes'], num_or_size_splits = 4, axis = -1)
 
-        x1 = x1 / tf.cast(height,dtype = target['boxes'].dtype)
-        y1 = y1 / tf.cast(width,dtype = target['boxes'].dtype)
-        x2 = x2 / tf.cast(height,dtype = target['boxes'].dtype)
-        y2 = y2 / tf.cast(width,dtype = target['boxes'].dtype)
+        x1 = x1 / tf.cast(width,dtype = target['boxes'].dtype)
+        y1 = y1 / tf.cast(height,dtype = target['boxes'].dtype)
+        x2 = x2 / tf.cast(width,dtype = target['boxes'].dtype)
+        y2 = y2 / tf.cast(height,dtype = target['boxes'].dtype)
 
         boxes = tf.concat([ x1, y1, x2, y2],axis=-1)
         target['boxes'] = boxes
@@ -75,9 +79,7 @@ class PhotometricDistort:
         
     def __call__(self, image, target):
         # Call early exit
-
-        image = self.to_float(image)
-
+        
         if self._p < 1.0:
             random_num = tf.random.uniform([])
             image = tf.cond(random_num < self._p, lambda: self.distort_image(image), lambda: image)
@@ -118,31 +120,6 @@ class PhotometricDistort:
 
     def random_channel_swap(self, image):
         perm = tf.random.shuffle(tf.constant([0, 1, 2]), seed=self._seed)
-        return tf.gather(image, perm, axis=-1)
-
-    def to_float(self, image):
-        return tf.cast(image, dtype = tf.float32)
-
-    def determine_outcome(self, function, image):
-        random_num = tf.random.uniform([], 0.0, 1.0, seed=self._seed)
-        return tf.cond(random_num < 0.5, lambda: function(image), lambda: image)
-
-    def contrast_first(self, image):
-        image = self.determine_outcome(lambda x: tf.image.random_contrast(x, self._contrast_range[0], self._contrast_range[1], seed=self.seed), image)
-        image = self.determine_outcome(lambda x: tf.image.random_saturation(x, self._saturation_range[0], self._saturation_range[1], seed=self.seed), image)
-        image = self.determine_outcome(lambda x: tf.image.random_hue(x, self.hue_delta, seed=self.seed), image)
-
-        return image
-
-    def contrast_last(self, image):
-        image = self.determine_outcome(lambda x: tf.image.random_saturation(x, self._saturation_range[0], self._saturation_range[1], seed=self.seed), image)
-        image = self.determine_outcome(lambda x: tf.image.random_hue(x, self.hue_delta, seed=self.seed), image)
-        image = self.determine_outcome(lambda x: tf.image.random_contrast(x, self._contrast_range[0], self._contrast_range[1], seed=self.seed), image)
-
-        return image
-
-    def random_channel_swap(self, image):
-        perm = tf.random.shuffle(tf.constant([0, 1, 2]), seed=self.seed)
         return tf.gather(image, perm, axis=-1)
 
 class RandomHorizontalFlip:
@@ -289,11 +266,7 @@ class Normalize:
         # Convert image to float32
         image = tf.cast(image, dtype = tf.float32)
 
-        # Scale pixels from [0,255] to [0,1]
-        if original_dtype.is_integer:
-            image = image / 255.0
-
-        # Applying channel wise normalization
+        # Applying channel wise normalization (assumption that the image is already [0,1] scaled)
         image = (image - self._mean) / self._std
 
         return image, target
@@ -351,32 +324,34 @@ class ClipAndFilterBoxes:
 
 def build_preprocess_pipeline(config: dict[str, Any]):
     preprocesss_opts = config['data'].get('preprocess', {})
-
+    preprocess_params = preprocesss_opts.get('params', {})
     preprocess_config = {
-        'input_size': tuple(preprocesss_opts.get('input_size', [224,224])),
-        'resize': {
-            'mode': preprocesss_opts.get('resize', {}).get('mode', 'stretch'),
-            'interp': preprocesss_opts.get('resize', {}).get('interp', 'bilinear'),
-        },
-        'padding': preprocesss_opts.get('pad', {}).get('value', 0),
-        'image': {
-            'to_float32': preprocesss_opts.get('image', {}).get('to_float32', True),
-            'scale': preprocesss_opts.get('image', {}).get('scale', '0_1'),
-        },
-        'boxes': {
-            'input_format': preprocesss_opts.get('boxes', {}).get('format_in', 'xyxy_pixels'),
-            'output_format': preprocesss_opts.get('boxes', {}).get('format_out', 'xyxy_norm'),
-            'clip': preprocesss_opts.get('boxes', {}).get('clip', True),
-            'min_size': preprocesss_opts.get('boxes', {}).get('min_size', 1),
-            'allow_empty': preprocesss_opts.get('boxes', {}).get('allow_empty', True),
-            'max_num': preprocesss_opts.get('boxes', {}).get('max_num', None),
-        },
-        'pipeline': preprocesss_opts.get('standardize_pipeline', ['to_float32', 'scale_01'])
+        'standardize_pipeline': preprocesss_opts.get('standardize_pipeline', ['to_float32', 'scale_01']),
+        'pipeline': preprocesss_opts.get('pipeline', ['resize', 'sanitize_boxes','normalize']),
+        'params': {
+            'resize': {
+                'enabled': preprocess_params.get('resize', {}).get('enabled', False),
+                'size': preprocess_params.get('resize', {}).get('size', [224, 224]),
+                'mode': preprocess_params.get('resize', {}).get('mode', 'stretch'),
+                'interp': preprocess_params.get('resize', {}).get('interp', 'bilinear'),
+            },
+            'sanitize_boxes': {
+                'enabled': preprocess_params.get('sanitize_boxes', {}).get('enabled', False),
+                'clip': preprocess_params.get('sanitize_boxes', {}).get('clip', False),
+                'min_size': preprocess_params.get('sanitize_boxes', {}).get('min_size', 1),
+                'min_size_mode': preprocess_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
+            },
+            'normalize': {
+                'enabled': preprocess_params.get('normalize', {}).get('enabled', False),
+                'mean': preprocess_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
+                'std': preprocess_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
+            }
+        }
     }
 
     return preprocess_config
     
-def build_augmentation_config(config: dict[str, Any]):
+def build_train_augmentation_config(config: dict[str, Any]):
     augment_opts = config['data'].get('augment', {})
     augment_params = augment_opts.get('params', {})
 
@@ -413,7 +388,7 @@ def build_augmentation_config(config: dict[str, Any]):
                 'contrast': augment_params.get('photometric_distort', {}).get('contrast', [0.5, 1.5]),
                 'saturation': augment_params.get('photometric_distort', {}).get('saturation', [0.5, 1.5]),
                 'hue': augment_params.get('photometric_distort', {}).get('hue', 0.5),
-                'random_order': augment_params.get('photometric_distort', {}).get('random_order', True),
+                'channel_swap': augment_params.get('photometric_distort', {}).get('random_order', True),
             },
             'resize': {
                 'enabled': augment_params.get('resize', {}).get('enabled', False),
@@ -437,15 +412,44 @@ def build_augmentation_config(config: dict[str, Any]):
 
     return augment_config
 
-def build_transforms(config: dict[str, Any]):
-    augment_config = build_augmentation_config(config)
+def build_validation_augmentation_config(config: dict[str, Any]):
+    validation_opts = config['data'].get('val_preprocess', {})
+    validation_params = validation_opts.get('params', {})
 
-    preprocess_config = build_preprocess_pipeline(config)
+    validation_config = {
+        'pipeline': validation_opts.get('pipeline', ['resize','sanitize_boxes','normalize']),
+        'standardize_pipeline': validation_opts.get('standardize_pipeline', ['to_float32', 'scale_01']),
+        'output_box_norm': validation_opts.get('output_box_norm', False),
+        'params': {
+            'resize': {
+                'enabled': validation_params.get('resize', {}).get('enabled', False),
+                'size': validation_params.get('resize', {}).get('size', [300, 300]),
+                'mode': validation_params.get('resize', {}).get('mode', 'stretch'),
+                'interp': validation_params.get('resize', {}).get('interp', 'bilinear'),
+            },
+            'sanitize_boxes': {
+                'enabled': validation_params.get('sanitize_boxes', {}).get('enabled', False),
+                'clip': validation_params.get('sanitize_boxes', {}).get('clip', False),
+                'min_size': validation_params.get('sanitize_boxes', {}).get('min_size', 1),
+                'min_size_mode': validation_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
+            },
+            'normalize': {
+                'enabled': validation_params.get('normalize', {}).get('enabled', False),
+                'mean': validation_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
+                'std': validation_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
+            }
+        }
+    }
+
+    return validation_config
+
+def build_validation_transforms(config: dict[str, Any]):
+    augment_config = build_validation_augmentation_config(config)
 
     # Building the config based on the pipeline
     transform_list = []
     # Iterating over the preprocess config
-    for preprocess_transform in preprocess_config['pipeline']:
+    for preprocess_transform in augment_config['standardize_pipeline']:
          match preprocess_transform:
             case 'to_float32':
                 float_transform = ToFloat32()
@@ -453,7 +457,55 @@ def build_transforms(config: dict[str, Any]):
             case 'scale_01':
                 scale = Scale01()
                 transform_list.append(scale)
+    
+    # Iterating over the augmentation transforms
+    for key in augment_config['pipeline']:
+        if not augment_config['params'][key]['enabled']:
+            continue
 
+        # Parse the config based on the type
+        match key:
+            case 'resize':
+                target_size = augment_config['params'][key]['size']
+                mode = augment_config['params'][key]['mode']
+                transform_list.append(Resize(size = tuple(target_size), mode = mode))
+            case 'sanitize_boxes':
+                min_size = augment_config['params'][key]['min_size']
+                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
+            case 'normalize':
+                mean = augment_config['params'][key]['mean']
+                std = augment_config['params'][key]['std']
+                transform_list.append(Normalize(mean = mean, std = std))
+            case _:
+                raise ValueError("Wrong Transform type present in the config")
+
+    # Last part to check for normalization
+    if augment_config['output_box_norm']:
+        # Normalize the boxes
+        normal_bboxes = NormalizeBoundingBoxes()
+        transform_list.append(normal_bboxes)
+
+    compose = Compose(transforms = transform_list)
+
+    return compose
+
+def build_train_transforms(config: dict[str, Any]):
+    augment_config = build_train_augmentation_config(config)
+
+    preprocess_config = build_preprocess_pipeline(config)
+
+    # Building the config based on the pipeline
+    transform_list = []
+    # Iterating over the preprocess config
+    for preprocess_transform in preprocess_config['standardize_pipeline']:
+         match preprocess_transform:
+            case 'to_float32':
+                float_transform = ToFloat32()
+                transform_list.append(float_transform)
+            case 'scale_01':
+                scale = Scale01()
+                transform_list.append(scale)
+    
     # Iterating over the augmentation transforms
     for key in augment_config['pipeline']:
         if not augment_config['params'][key]['enabled']:
@@ -478,25 +530,39 @@ def build_transforms(config: dict[str, Any]):
                 contrast_range = augment_config['params'][key]['contrast']
                 saturation_range = augment_config['params'][key]['saturation']
                 hue_delta = augment_config['params'][key]['hue']
-                channel_swap = augment_config['params'][key]['random_order']
+                channel_swap = augment_config['params'][key]['channel_swap']
                 transform_list.append(PhotometricDistort(p = p, brightness_delta = brightness_delta, contrast_range = contrast_range,saturation_range = saturation_range,hue_delta = hue_delta, channel_swap = channel_swap))
+            case _:
+                raise ValueError("Wrong Transform type present in the config")
+
+
+    # Last Part of the pipeline
+    for key in preprocess_config['pipeline']:
+        if not preprocess_config['params'][key]['enabled']:
+            continue
+
+        # Parse the config based on the type
+        match key:
             case 'resize':
-                target_size = augment_config['params'][key]['size']
-                mode = augment_config['params'][key]['mode']
+                target_size = preprocess_config['params'][key]['size']
+                mode = preprocess_config['params'][key]['mode']
                 transform_list.append(Resize(size = tuple(target_size), mode = mode))
             case 'sanitize_boxes':
-                min_size = augment_config['params'][key]['min_size']
+                min_size = preprocess_config['params'][key]['min_size']
                 transform_list.append(ClipAndFilterBoxes(min_size = min_size))
             case 'normalize':
-                mean = augment_config['params'][key]['mean']
-                std = augment_config['params'][key]['std']
+                mean = preprocess_config['params'][key]['mean']
+                std = preprocess_config['params'][key]['std']
                 transform_list.append(Normalize(mean = mean, std = std))
             case _:
                 raise ValueError("Wrong Transform type present in the config")
 
+
+    # Last part to check for normalization
     if augment_config['output_box_norm']:
-        normalize_boxes = NormalizeBoundingBoxes()
-        transform_list.append(normalize_boxes)
+        # Normalize the boxes
+        normal_bboxes = NormalizeBoundingBoxes()
+        transform_list.append(normal_bboxes)
 
     compose = Compose(transforms = transform_list)
 
