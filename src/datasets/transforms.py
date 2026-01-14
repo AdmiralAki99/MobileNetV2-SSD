@@ -352,7 +352,7 @@ def build_preprocess_pipeline(config: dict[str, Any]):
     return preprocess_config
     
 def build_train_augmentation_config(config: dict[str, Any]):
-    augment_opts = config['data'].get('augment', {})
+    augment_opts = config['data'].get('train', {}).get('transform',{})
     augment_params = augment_opts.get('params', {})
 
     augment_config = {
@@ -388,7 +388,7 @@ def build_train_augmentation_config(config: dict[str, Any]):
                 'contrast': augment_params.get('photometric_distort', {}).get('contrast', [0.5, 1.5]),
                 'saturation': augment_params.get('photometric_distort', {}).get('saturation', [0.5, 1.5]),
                 'hue': augment_params.get('photometric_distort', {}).get('hue', 0.5),
-                'channel_swap': augment_params.get('photometric_distort', {}).get('random_order', True),
+                'random_order': augment_params.get('photometric_distort', {}).get('random_order', True),
             },
             'resize': {
                 'enabled': augment_params.get('resize', {}).get('enabled', False),
@@ -413,7 +413,7 @@ def build_train_augmentation_config(config: dict[str, Any]):
     return augment_config
 
 def build_validation_augmentation_config(config: dict[str, Any]):
-    validation_opts = config['data'].get('val_preprocess', {})
+    validation_opts = config['data'].get('val', {}).get('preprocess',{})
     validation_params = validation_opts.get('params', {})
 
     validation_config = {
@@ -530,7 +530,7 @@ def build_train_transforms(config: dict[str, Any]):
                 contrast_range = augment_config['params'][key]['contrast']
                 saturation_range = augment_config['params'][key]['saturation']
                 hue_delta = augment_config['params'][key]['hue']
-                channel_swap = augment_config['params'][key]['channel_swap']
+                channel_swap = augment_config['params'][key]['random_order']
                 transform_list.append(PhotometricDistort(p = p, brightness_delta = brightness_delta, contrast_range = contrast_range,saturation_range = saturation_range,hue_delta = hue_delta, channel_swap = channel_swap))
             case _:
                 raise ValueError("Wrong Transform type present in the config")
