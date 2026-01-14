@@ -33,6 +33,8 @@ class VOCDataset(BaseDetectionDataset):
 
         self._ids = self.read_ids(self._split_file)
         
+        self._transform = transform
+        
     def __len__(self):
         return len(self._ids)
 
@@ -136,7 +138,7 @@ class VOCDataset(BaseDetectionDataset):
         
         
         
-def build_voc_dataset(config: dict[str, Any], split: str, transform: None):
+def build_voc_dataset(config: dict[str, Any], split: str, transform: None = None):
 
     dataset = VOCDataset(config, split = split, transform = transform)
 

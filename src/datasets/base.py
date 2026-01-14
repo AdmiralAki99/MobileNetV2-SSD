@@ -241,3 +241,18 @@ class BaseDetectionDataset(ABC):
             self._validate_target(image, target)
 
         return image, target
+    
+    def generator(self):
+        for index in range(len(self)):
+            image, target = self[index]
+            yield {
+                "image": image,
+                "boxes": target['boxes'],
+                "labels": target['labels'],
+                "path": target['path'],
+                "image_id": target['image_id'],
+                "hash_signature": target['hash_signature'],
+            }
+      
+        
+        

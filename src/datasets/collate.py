@@ -10,9 +10,9 @@ _output_signature = {
     "image": tf.TensorSpec(shape=(None, None, 3), dtype=tf.float32),
     "boxes": tf.TensorSpec(shape=(None, 4), dtype=tf.float32),
     "labels": tf.TensorSpec(shape=(None,), dtype=tf.int32),
-    "path": tf.TensorSpec(shape=(None), dtype=tf.string),
-    "image_id": tf.TensorSpec(shape=(None), dtype=tf.string),
-    "hash_signature": tf.TensorSpec(shape=(None), dtype=tf.string),
+    "path": tf.TensorSpec(shape=(), dtype=tf.string),
+    "image_id": tf.TensorSpec(shape=(), dtype=tf.string),
+    "hash_signature": tf.TensorSpec(shape=(), dtype=tf.string),
 }
 
 def create_training_dataset_config(config: dict[str, Any]):
@@ -57,7 +57,7 @@ def create_validation_dataset_config(config: dict[str, Any]):
         'padding_values': {
             'image': validation_dataset_opts.get('padding_values', {}).get('image', 0.0),
             'boxes': validation_dataset_opts.get('padding_values', {}).get('boxes', -1.0),
-            'labels': validation_dataset_opts.get('padding_values', {}).get('labels', -1),
+            'labels': validation_dataset_opts.get('padding_values', {}).get('labels', 0),
         },
         'shuffle': validation_dataset_opts.get('shuffle', False),
         'prefetch': validation_dataset_opts.get('prefetch', False),
@@ -68,17 +68,17 @@ def create_validation_dataset_config(config: dict[str, Any]):
 
 def _create_gt_mask(data):
     gt_mask = data['labels'] > 0
-    data['valid_gt_mask'] = gt_mask
+    data['gt_mask'] = gt_mask
     return data
 
 def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionDataset):
     dataset_opts = create_validation_dataset_config(config)
 
-    tf_dataset = tf.data.Dataset.from_generator(dataset._generator,output_signature = _output_signature)
+    tf_dataset = tf.data.Dataset.from_generator(dataset.generator,output_signature = _output_signature)
 
     # Now checking for the options
     if dataset_opts['shuffle']:
-        tf_dataset = tf_dataset.shuffle(buffer_size = 1000, reshuffle_each_iteration=True)
+        tf_dataset = tf_dataset.shuffle(buffer_size = min(1000, len(dataset)), reshuffle_each_iteration=True)
 
     # Padding the batch is crucial for the dataset
     tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
@@ -102,7 +102,7 @@ def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionData
 def create_training_dataset(config: dict[str, Any], dataset: BaseDetectionDataset):
     dataset_opts = create_training_dataset_config(config)
 
-    tf_dataset = tf.data.Dataset.from_generator(dataset._generator,output_signature = _output_signature)
+    tf_dataset = tf.data.Dataset.from_generator(dataset.generator,output_signature = _output_signature)
 
     # Now checking for the options
     if dataset_opts['shuffle']:
