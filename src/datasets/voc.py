@@ -1,6 +1,8 @@
 import tensorflow as tf
 from pathlib import Path
 from typing import Any
+import hashlib
+import json
 import xml.etree.ElementTree as ET
 
 from datasets.base import BaseDetectionDataset
@@ -33,6 +35,10 @@ class VOCDataset(BaseDetectionDataset):
         
     def __len__(self):
         return len(self._ids)
+
+    def _create_hash_signature(self, attributes: dict[str,Any]):
+        serialized = json.dumps(attributes, sort_keys=True).encode()
+        return hashlib.md5(serialized).hexdigest()
 
     def _load_raw_sample(self, index: int):
         # Load and decode the Image by reading the file, the annotations from the XML and map class names to the label
@@ -92,12 +98,24 @@ class VOCDataset(BaseDetectionDataset):
             labels.append(int(self._name_to_id[name]))
             difficults.append(difficult)
 
+        hash_signature_attributes = {
+            'boxes' : boxes,
+            'labels' : labels,
+            'path': jpeg_path,
+            'image_id': image_id,
+            'width': width,
+            'height': height
+        }
+
+        hash_signature = self._create_hash_signature(hash_signature_attributes)
+
         target = {
             'boxes' : boxes,
             'labels' : labels,
             'path': jpeg_path,
             'image_id': image_id,
-            'orig_size': tf.constant([height, width], dtype= tf.int32)
+            'hash_signature': hash_signature,
+            'orig_size': tf.constant([width, height], dtype= tf.int32)
         }
 
         return image, target
@@ -115,6 +133,7 @@ class VOCDataset(BaseDetectionDataset):
             labels = [line.strip().split(" ")[0] for line in f.readlines() if line.strip()]
 
         return labels
+        
         
         
 def build_voc_dataset(config: dict[str, Any], split: str, transform: None):

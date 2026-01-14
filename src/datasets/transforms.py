@@ -3,7 +3,7 @@ from typing import Any
 
 # Standardization Functions
 class ToFloat32:
-    def __init__(self, image_precision: tf.dtypes.DType = tf.float32, target_precision:tf.dtypes.DType = tf.float32):
+    def __init__(self, image_precision: tf.dtypes.DType = tf.float32, target_precision:tf.dtypes.DType = tf.float16):
         if not isinstance(image_precision, tf.dtypes.DType) or not isinstance(target_precision, tf.dtypes.DType):
             raise ValueError("The precision is not a Tensorflow dtype")
         
@@ -14,7 +14,7 @@ class ToFloat32:
     def __call__(self, image, target):
        # Converting the image from uint8 to float32
         image = tf.cast(image, dtype = self._image_dtype)
-        target['boxes'] = tf.constant(target['boxes'], dtype = self._target_dtype)
+        target['boxes'] = tf.cast(target['boxes'], dtype = self._target_dtype)
         target['labels'] = tf.cast(target['labels'], dtype = tf.int32)
 
         return image, target

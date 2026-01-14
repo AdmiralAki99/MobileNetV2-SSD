@@ -55,7 +55,7 @@ class BaseDetectionDataset(ABC):
         return labels
 
     @abstractmethod
-    def __len__(self):
+    def __len__(self) -> int:
         raise NotImplementedError
 
     @abstractmethod
@@ -94,13 +94,23 @@ class BaseDetectionDataset(ABC):
 
         # Making sure the metadata exists
         if 'image_id' not in target:
-            target['image_id'] = tf.convert_to_tensor(index)
+            target['image_id'] = tf.constant(f'{index}',dtype= tf.string)
+        else:
+            # Convert to tensor with the initial value
+            target['image_id'] = tf.constant(target['image_id'],dtype= tf.string)
+
+        if 'hash_signature' not in target:
+            target['hash_signature'] = tf.constant('',dtype= tf.string)
+        else:
+            target['hash_signature'] = tf.constant(target['hash_signature'],dtype= tf.string)
 
         if 'orig_size' not in target:
             target['orig_size'] = tf.shape(image)[0:2]
 
         if 'path' not in target:
             target['path'] = tf.constant("", dtype= tf.string)
+        else:
+            target['path'] = tf.constant(target['path'], dtype= tf.string)
 
         return target
 
