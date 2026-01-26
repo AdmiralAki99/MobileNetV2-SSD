@@ -1,3 +1,4 @@
+from matplotlib.pylab import shape
 import tensorflow as tf
 from typing import Any
 
@@ -35,7 +36,7 @@ class NormalizeBoundingBoxes:
     def __call__(self, image, target):
         # Scale the Boxes
         if 'resize_info' in target:
-            height, width = target['resize_info']
+            height, width = tf.unstack(target['resize_info'])
         else:
             height, width = target['orig_size']
             
@@ -247,7 +248,7 @@ class Resize:
 
         target['boxes'] = boxes
 
-        target['resize_info'] = tf.constant(tf.cast([new_h, new_w], tf.float32),dtype = tf.float32)
+        target['resize_info'] = tf.stack([new_h, new_w])
         
         return image, target
     
@@ -280,7 +281,9 @@ class ClipAndFilterBoxes:
         boxes = target['boxes']
         labels = target['labels']
 
-        H, W, _ = tf.shape(image)
+        shape = tf.shape(image)
+        H = tf.cast(shape[0], tf.float32)
+        W = tf.cast(shape[1], tf.float32)
 
         H = tf.cast(H, dtype= tf.float32)
         W = tf.cast(W, dtype= tf.float32)

@@ -1,146 +1,133 @@
-import tensorflow as tf
-from pathlib import Path
+import numpy as np
+from PIL import Image
 from typing import Any
-import hashlib
-import json
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from datasets.base import BaseDetectionDataset
+from datasets.base import BaseDetectionDataset, DetectionSample
 
 class VOCDataset(BaseDetectionDataset):
-    def __init__(self, config: dict[str,Any], split: str, transform = None):
-        super().__init__(config, split, transform)
+    def __init__(self, root: str | Path, split: str, classes_file: str | Path, use_difficult: bool = False):
+        super().__init__(root, split, classes_file, use_difficult)
 
-        self._root = Path(config['data']['root'])
-        self._train_split = config['data']['train_split']
-        self._val_split = config['data']['val_split']
-        self._use_difficult = bool(config["data"].get("use_difficult", False))
+        self.jpeg_dir = self.root / "JPEGImages"
+        self.annotation_dir = self.root / "Annotations"
+        self.split_dir = self.root / "ImageSets" / "Main"
 
-        # Creating the file directories
-        self._jpeg_dir = self._root / "JPEGImages"
-        self._annotation_dir = self._root / "Annotations"
-        self._split_dir = self._root / "ImageSets" / "Main"
+        # Validating the directories
+        self._validate_paths()
 
-        if split in ("train", "trainval", "train_val"):
-            split_name = self._train_split
-        elif split in ("val", "validation"):
-            split_name = self._val_split
-        else:
-            raise ValueError("Wrong Split Name Given")
+        self.image_ids = self._load_image_ids()
 
-        # Handling Split directories
-        self._split_file = self._split_dir / f"{split_name}.txt"
-
-        self._ids = self.read_ids(self._split_file)
+        if len(self.image_ids) == 0:
+            raise ValueError(f"No images found for split '{split}'")
         
-        self._transform = transform
+    def _validate_paths(self):
+        # Checking if the directory exists or not
+        if not self.jpeg_dir.exists():
+            raise FileNotFoundError(f"JPEGImages directory not found: {self.jpeg_dir}")
         
-    def __len__(self):
-        return len(self._ids)
+        if not self.annotation_dir.exists():
+            raise FileNotFoundError(f"Annotations directory not found: {self.annotation_dir}")
 
-    def _create_hash_signature(self, attributes: dict[str,Any]):
-        serialized = json.dumps(attributes, sort_keys=True).encode()
-        return hashlib.md5(serialized).hexdigest()
+        if not self.split_dir.exists():
+            raise FileNotFoundError(f"ImageSets/Main directory not found: {self.split_dir}")
 
-    def _load_raw_sample(self, index: int):
-        # Load and decode the Image by reading the file, the annotations from the XML and map class names to the label
-        image_id = self.get_image_id(index)
+    def _load_image_ids(self):
+        # Loading the ids from the split file to get the proper images
         
-        jpeg_path = str(self._jpeg_dir / f"{image_id}.jpg")
-        xml_path = str(self._annotation_dir / f"{image_id}.xml")
+        split_file = self.split_dir / f"{self.split}.txt"
         
-        image = tf.keras.utils.load_img(jpeg_path, color_mode="rgb")
-        # Keeping the image in its raw format and will preprocess that later
-        image = tf.keras.utils.img_to_array(image)
-        image = tf.convert_to_tensor(image, dtype=tf.uint8)
+        if not split_file.exists():
+            raise FileNotFoundError(f"Split file not found: {split_file}")
+
+        with open(split_file, "r") as file:
+            ids = []
+            for line in file:
+                line = line.strip()
+                if line:
+                    parts = line.split()
+                    ids.append(parts[0])
+
+        return ids
+
+    def __len__(self) -> int:
+        return len(self.image_ids)
+
+    def _load_image(self, path: Path):
+        if not path.exists():
+            raise FileNotFoundError(f"Image not found: {path}")
+
+        # Read the file
+        image = Image.open(path).convert("RGB")
+        return np.array(image, dtype = np.float32)
+
+    def _parse_annotation(self, path: Path):
+
+        if not path.exists():
+             return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
+
+        # Loading the XML annotation
+        tree = ET.parse(path)
+        root = tree.getroot()
 
         boxes = []
         labels = []
-        difficults = []
 
-        # Reading the XML annotations
+        for obj in root.findall("object"):
 
-        tree = ET.parse(str(xml_path))
-        
-        root = tree.getroot()
-
-        size = root.find('size')
-        if size is None:
-            height, width = int(image.shape[0]), int(image.shape[1])
-        else:
-            width = int(size.findtext("width") or 0)
-            height = int(size.findtext("height") or 0)
-
-        if width == 0 or height == 0:
-            raise ValueError(f"Unknown width in {xml_path}")
-
-        for annotation_obj in root.findall('object'):
-            name = (annotation_obj.findtext("name", "") or "").strip()
-            if not name:
+            # Getting the name
+            name = (obj.findtext("name") or "").strip()
+            if not name or name not in self.class_to_index:
                 continue
 
-            if name not in self._name_to_id:
-                raise ValueError(f"Unknown class '{name}' in {xml_path}")
-
-            difficult = int(annotation_obj.findtext("difficult","0") or "0")
-            if (not self._use_difficult) and difficult == 1:
+            # Getting the difficult flag
+            difficult = int(obj.findtext("difficult") or "0")
+            if difficult and not self.use_difficult:
                 continue
 
-            bbox = annotation_obj.find("bndbox")
+            # Getting the bounding box
+            bbox = obj.find("bndbox")
             if bbox is None:
                 continue
 
-            # Getting the Coordinates
-            x1 = float(bbox.findtext("xmin", "nan"))
-            y1 = float(bbox.findtext("ymin", "nan"))
-            x2 = float(bbox.findtext("xmax", "nan"))
-            y2 = float(bbox.findtext("ymax", "nan"))
+            try:
+                x1 = float(bbox.findtext("xmin") or 0)
+                y1 = float(bbox.findtext("ymin") or 0)
+                x2 = float(bbox.findtext("xmax") or 0)
+                y2 = float(bbox.findtext("ymax") or 0)
+            except (ValueError, TypeError):
+                continue
 
-            boxes.append([x1,y1,x2,y2])
-            labels.append(int(self._name_to_id[name]))
-            difficults.append(difficult)
+            # Making sure invalid boxes dont make it through
+            if x2 <= x1 or y2 <= y1:
+                continue
 
-        hash_signature_attributes = {
-            'boxes' : boxes,
-            'labels' : labels,
-            'path': jpeg_path,
-            'image_id': image_id,
-            'width': width,
-            'height': height
-        }
+            boxes.append([x1, y1, x2, y2])
+            labels.append(self.class_to_index[name])
 
-        hash_signature = self._create_hash_signature(hash_signature_attributes)
+        if boxes:
+            return np.array(boxes, dtype= np.float32), np.array(labels, dtype=np.int32)
+        else:
+            return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
 
-        target = {
-            'boxes' : boxes,
-            'labels' : labels,
-            'path': jpeg_path,
-            'image_id': image_id,
-            'hash_signature': hash_signature,
-            'orig_size': tf.constant([width, height], dtype= tf.int32)
-        }
-
-        return image, target
+    def _load_sample(self, index: int):
         
-    def get_image_id(self, index: int):
-        if index < 0 or index >= len(self._ids):
-            raise IndexError("Index length is out of bounds")
-        return self._ids[index]
+        image_id = self.image_ids[index]
 
-    def read_ids(self, file_path: str | Path):
-        if isinstance(file_path, str):
-            file_path = Path(file_path)
+        # Loading the image
+        image_path = self.jpeg_dir / f"{image_id}.jpg"
+        image = self._load_image(image_path)
 
-        with open(file_path, "r") as f:
-            labels = [line.strip().split(" ")[0] for line in f.readlines() if line.strip()]
+        # Loading the annotation
+        annotation_path = self.annotation_dir / f"{image_id}.xml"
+        boxes, labels = self._parse_annotation(annotation_path)
 
-        return labels
-        
-        
-        
-def build_voc_dataset(config: dict[str, Any], split: str, transform: None = None):
-
-    dataset = VOCDataset(config, split = split, transform = transform)
-
-    return dataset
-    
+        return DetectionSample(
+            image = image, 
+            boxes = boxes,
+            labels = labels,
+            image_id = image_id,
+            path = str(image_path),
+            orig_size = image.shape[:2]
+        )
