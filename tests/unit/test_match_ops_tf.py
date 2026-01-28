@@ -202,10 +202,9 @@ def test_hard_negative_mining():
     neg_mask = tf.constant([ True, False,  True,  True, False,  True,  True,  True])
     conf_loss = tf.constant([0.05,  1.20,  0.80,  0.02,  0.40,  1.50,  0.30,  0.90])
     
-    mined_neg_mask, mined_neg_indices = hard_negative_mining(conf_loss,pos_mask,neg_mask,neg_ratio = 1.0,min_neg = None, max_neg = None)
+    mined_neg_mask = hard_negative_mining(conf_loss,pos_mask,neg_mask,neg_ratio = 1.0,min_neg = None, max_neg = None)
     
     expected_mask = tf.constant([False, False, False, False, False,  True, False,  True], tf.bool)
     expected_num_indices = tf.constant(2,tf.int32)
     
     tf.debugging.assert_equal(mined_neg_mask,expected_mask,message = f"Value mismatch for mined negative mask")
-    tf.debugging.assert_equal(expected_num_indices,tf.shape(mined_neg_indices)[0],message = f"Value mismatch for num of mined indices")
