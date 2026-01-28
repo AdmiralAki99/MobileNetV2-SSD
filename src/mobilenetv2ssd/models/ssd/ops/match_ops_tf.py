@@ -205,4 +205,4 @@ def hard_negative_mining(conf_loss: tf.Tensor, pos_mask: tf.Tensor, neg_mask:tf.
 
     selected_negative_indices = hard_negative_indices
 
-    return selected_negative_mask, selected_negative_indices
+    return selected_negative_mask

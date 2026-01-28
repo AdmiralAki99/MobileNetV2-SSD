@@ -18,7 +18,7 @@ class SSD(tf.keras.Model):
 
         # Localization and Classification Heads
         self.localization_head = LocalizationHead(name = "loc_head", num_anchors_per_location = number_of_anchors_per_layer, head_type = loc_head_configuration.get("head_type","conv3x3"), initial_norm_strategy = loc_head_configuration.get("initial_norm_strategy","BatchNorm"), squeeze_ratio = loc_head_configuration.get("squeeze_ratio",1.0), intermediate_conv = loc_head_configuration.get("intermediate_conv",128), in_channels =  loc_head_configuration.get("in_channels",[256,512,512])) 
-        self.classification_head = ClassificationHead(name = "loc_head", num_anchors_per_location = number_of_anchors_per_layer, number_of_classes = number_of_classes , head_type = cls_head_configuration.get("head_type","conv3x3"), norm_cfg = cls_head_configuration.get("initial_norm_strategy","BatchNorm"), squeeze_ratio = cls_head_configuration.get("squeeze_ratio",1.0), intermediate_conv = cls_head_configuration.get("intermediate_conv",128))
+        self.classification_head = ClassificationHead(name = "cls_head", num_anchors_per_location = number_of_anchors_per_layer, number_of_classes = number_of_classes , head_type = cls_head_configuration.get("head_type","conv3x3"), norm_cfg = cls_head_configuration.get("initial_norm_strategy","BatchNorm"), squeeze_ratio = cls_head_configuration.get("squeeze_ratio",1.0), intermediate_conv = cls_head_configuration.get("intermediate_conv",128))
         
     
     def call(self,image: tf.Tensor,training = False):

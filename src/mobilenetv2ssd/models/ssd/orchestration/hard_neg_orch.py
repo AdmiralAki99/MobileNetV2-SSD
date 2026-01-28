@@ -21,10 +21,9 @@ def select_hard_negatives(config: dict[str, Any], conf_loss: tf.Tensor, positive
     # 2. Calculate Hard negatives
     sampler_config = _extract_information_from_train_config(config)
 
-    selected_negative_mask, selected_negative_indices = tf.map_fn(lambda inputs: hard_negative_mining(conf_loss = inputs[0],pos_mask = inputs[1],neg_mask = inputs[2],neg_ratio = sampler_config['neg_pos_ratio'], min_neg = sampler_config['min_neg'], max_neg = sampler_config['max_neg']),
+    selected_negative_mask = tf.map_fn(lambda inputs: hard_negative_mining(conf_loss = inputs[0],pos_mask = inputs[1],neg_mask = inputs[2],neg_ratio = sampler_config['neg_pos_ratio'], min_neg = sampler_config['min_neg'], max_neg = sampler_config['max_neg']),
               elems = (conf_loss,positive_mask,negative_mask), 
-              fn_output_signature = ( tf.TensorSpec(shape=(None,), dtype=tf.bool),tf.TensorSpec(shape=(None,1),dtype=tf.int32))
+              fn_output_signature = ( tf.TensorSpec(shape=(None,), dtype=tf.bool))
              )
          
-    return selected_negative_mask, selected_negative_indices
-    
+    return selected_negative_mask

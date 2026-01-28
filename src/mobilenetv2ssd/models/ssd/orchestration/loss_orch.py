@@ -2,6 +2,7 @@ import tensorflow as tf
 from typing import Any
 
 from mobilenetv2ssd.models.ssd.ops.loss_ops_tf import multibox_loss
+from mobilenetv2ssd.core.precision_config import PrecisionConfig
 
 def _extract_information_from_train_config(config : dict[str, Any]):
     train_config = config['train']
@@ -24,7 +25,7 @@ def _extract_information_from_train_config(config : dict[str, Any]):
 
     return loss_config
 
-def calculate_final_loss(config: dict[str,Any], predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, localization_targets: tf.Tensor, classification_targets: tf.Tensor, positive_mask: tf.Tensor, negative_mask: tf.Tensor):
+def calculate_final_loss(config: dict[str,Any], predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, localization_targets: tf.Tensor, classification_targets: tf.Tensor, positive_mask: tf.Tensor, negative_mask: tf.Tensor, precision_config : PrecisionConfig | None = None):
     # This is the function that calculates the multibox loss for the model
     # Steps:
     # 1. Get values from the config.
@@ -42,6 +43,6 @@ def calculate_final_loss(config: dict[str,Any], predicted_offsets: tf.Tensor, pr
     #                       }
     #                      )
 
-    loss_dict = multibox_loss(predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, target_offsets = localization_targets, target_labels = classification_targets, positive_mask = positive_mask, negative_mask = negative_mask, localization_weight = loss_config["localization_weights"], classification_weight = loss_config["classification_weights"], beta = loss_config["smooth_l1_beta"], cls_loss_type = loss_config["cls_loss_type"],loc_loss_type = loss_config["reg_loss_type"], normalize_denom = loss_config["normalization_denom"], reduction = loss_config['reduction'])
+    loss_dict = multibox_loss(predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, target_offsets = localization_targets, target_labels = classification_targets, positive_mask = positive_mask, negative_mask = negative_mask, localization_weight = loss_config["localization_weights"], classification_weight = loss_config["classification_weights"], beta = loss_config["smooth_l1_beta"], cls_loss_type = loss_config["cls_loss_type"],loc_loss_type = loss_config["reg_loss_type"], normalize_denom = loss_config["normalization_denom"], reduction = loss_config['reduction'], precision_config= precision_config)
 
     return loss_dict

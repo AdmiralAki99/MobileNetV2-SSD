@@ -4,6 +4,8 @@ from typing import Any
 from mobilenetv2ssd.models.ssd.ops.match_ops_tf import match_priors
 from mobilenetv2ssd.models.ssd.ops.encode_ops_tf import encode_boxes_core, encode_boxes_batch
 
+from mobilenetv2ssd.core.precision_config import PrecisionConfig
+
 def _extract_information_from_train_config(config : dict[str, Any]):
     model_config = config['model']
     train_config = config['train']
@@ -22,7 +24,7 @@ def _extract_information_from_train_config(config : dict[str, Any]):
 
     return target_config
 
-def building_training_targets(config: dict[str, Any], priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, gt_valid_mask : tf.Tensor):
+def building_training_targets(config: dict[str, Any], priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: tf.Tensor, gt_valid_mask : tf.Tensor, precision_config: PrecisionConfig | None = None):
     # This is the orchestrator for building the training targets
     # Steps:
     # 1. Extract the configuration used to create the matches from train & model config
@@ -43,11 +45,11 @@ def building_training_targets(config: dict[str, Any], priors_cxcywh: tf.Tensor, 
         "matched_iou": tf.TensorSpec(shape=(None,), dtype=tf.float32),
     }
 
-    matched_dict = tf.map_fn(lambda inputs: match_priors(priors_cxcywh = priors_cxcywh, gt_boxes_xyxy = inputs[0], gt_labels = inputs[1],gt_valid_mask = inputs[2],positive_iou_thresh = target_config['iou_threshold_pos'], negative_iou_thresh = target_config['iou_threshold_neg'],max_pos_per_gt = None,allow_low_qual_matches = target_config['allow_low_quality_matches'],center_in_gt = target_config['center_in_gt'],return_iou = target_config['diagnostics']), 
+    matched_dict = tf.map_fn(lambda inputs: match_priors(priors_cxcywh = priors_cxcywh, gt_boxes_xyxy = inputs[0], gt_labels = inputs[1],gt_valid_mask = inputs[2],positive_iou_thresh = target_config['iou_threshold_pos'], negative_iou_thresh = target_config['iou_threshold_neg'],max_pos_per_gt = None,allow_low_qual_matches = target_config['allow_low_quality_matches'],center_in_gt = target_config['center_in_gt'],return_iou = target_config['diagnostics'],precision_config= precision_config), 
                              elems = (gt_boxes_xyxy, gt_labels, gt_valid_mask), 
                              fn_output_signature = batched_output) 
     
-    localization_targets =  encode_boxes_batch(matched_gt_xyxy = matched_dict['matched_gt_xyxy'],priors_cxcywh = priors_cxcywh, variances = tuple(target_config['variances']))
+    localization_targets =  encode_boxes_batch(matched_gt_xyxy = matched_dict['matched_gt_xyxy'],priors_cxcywh = priors_cxcywh, variances = tuple(target_config['variances']), precision_config= precision_config)
     
     # Get the values from the dict
     

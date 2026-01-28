@@ -3,28 +3,26 @@ from typing import Any
 from pathlib import Path
 
 from mobilenetv2ssd.models.ssd.ops.postprocess_tf import decode_and_nms
+from mobilenetv2ssd.core.precision_config import PrecisionConfig
 
-def _read_deploy_config(config: dict[str, Any]):
-    deploy_config = config['deploy']
-    input_config = deploy_config['input']
-    prior_config = deploy_config['priors']
-    post_config = deploy_config['post_processing']
-    classes_config = deploy_config['classes']
-    deploy_config = {
-        'input_size': {
-            'image_height' : input_config.get('size',[224,224,3])[0],
-            'image_width' : input_config.get('size',[224,224,3])[1],
-        },
-        'iou_thresh': float(post_config.get('nms_iou_threshold',0.4)),
-        'variances': tf.constant(prior_config.get('variances',[0.1,0.2])),
-        'max_detection': post_config.get('max_detections',100),
-        'per_class_top_k': post_config.get('per_class_top_k',100),
-        'score_thresh': post_config.get('score_threshold',0.45),
-        'num_classes': classes_config.get('num_classes',21),
-        'labels_map' : classes_config.get('labels_map',None),
-        'use_sigmoid': classes_config.get('use_sigmoid',False)
+def _read_eval_config(config: dict[str, Any]):
+    eval_opts = config['eval']
+    nms_config = eval_opts['nms']
+    decode_config = eval_opts['decode']
+    eval_config = {
+        
+        'iou_threshold': nms_config.get('iou_threshold', 0.5),
+        'score_threshold': nms_config.get('score_threshold', 0.05),
+        'max_detections_per_class': nms_config.get('max_detections_per_class', 50),
+        'max_detections_per_image': nms_config.get('max_detections_per_image', 100),
+        'per_class_top_k': nms_config.get('per_class_top_k', 100),
+        'class_file': decode_config.get('root', None),
+        'variances': tf.constant(list(decode_config.get('variances', [0.1,0.2])), dtype = tf.float32),
+        'use_sigmoid': decode_config.get('use_sigmoid', False),
+        'input_size': {'image_height': eval_opts.get('input', 0)[0],'image_width': eval_opts.get('input', 0)[1]}
     }
-    return deploy_config
+    
+    return eval_config
 
 def _load_label_map(label_file_path: str, use_sigmoid: bool = False):
     
@@ -50,15 +48,15 @@ def _decode_class_names(class_id_tensor: tf.Tensor, labels: dict[int,str]):
     
     return decoded_classes
 
-def build_decoded_boxes(config: dict[str,Any], predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, priors: tf.Tensor):
-    deploy_config = _read_deploy_config(config)
+def build_decoded_boxes(config: dict[str,Any], predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, priors: tf.Tensor, precision_config: PrecisionConfig | None = None):
+    eval_config = _read_eval_config(config)
 
     # Decoding boxes
-    nmsed_boxes,nmsed_scores, nmsed_classes, valid_detections = decode_and_nms(predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, priors = priors, variances = deploy_config['variances'],scores_thresh = deploy_config['score_thresh'], iou_thresh = deploy_config['iou_thresh'], top_k = deploy_config['per_class_top_k'], max_detections = deploy_config['max_detection'],image_meta = deploy_config['input_size'],use_sigmoid = deploy_config['use_sigmoid'])   
+    nmsed_boxes,nmsed_scores, nmsed_classes, valid_detections = decode_and_nms(predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, priors = priors, variances = eval_config['variances'],scores_thresh = eval_config['score_threshold'], iou_thresh = eval_config['iou_threshold'], top_k = eval_config['per_class_top_k'], max_detections = eval_config['max_detections_per_image'],image_meta = eval_config['input_size'],use_sigmoid = eval_config['use_sigmoid'], precision_config= precision_config)   
 
     # Getting the classes
-    classes = _load_label_map(deploy_config['labels_map'],use_sigmoid = deploy_config['use_sigmoid'])
+    classes = _load_label_map(eval_config['class_file'],use_sigmoid = eval_config['use_sigmoid'])
 
     decoded_classes = _decode_class_names(nmsed_classes, classes)
 
-    return nmsed_boxes, nmsed_scores, nmsed_classes, decoded_classes, classes
+    return nmsed_boxes, nmsed_scores, nmsed_classes, decoded_classes, classes, valid_detections

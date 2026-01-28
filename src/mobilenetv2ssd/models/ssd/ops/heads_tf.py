@@ -9,7 +9,7 @@ class LocalizationHead(tf.keras.Layer):
         self.heads = []
         self.head_type = kwargs['head_type']
         self.heads = []
-        self.num_anchors_per_layer = num_anchors_per_location
+        self.num_anchors_per_layer = list(num_anchors_per_location)
         
         self.initial_norm = self.make_normalization(kwargs.get('initial_norm_strategy', "BatchNorm"))
         
@@ -53,7 +53,10 @@ class LocalizationHead(tf.keras.Layer):
             B = tf.shape(x)[0]
             H = tf.shape(x)[1]
             W = tf.shape(x)[2]
-
+            
+            # tf.print("num_anchors=", num_anchors, " x.shape=", tf.shape(x), " layer=",layer," H=", H," W=", W)
+            tf.debugging.assert_equal(tf.shape(x)[-1], num_anchors * 4)
+            
             x = tf.reshape(x, [B, H, W, num_anchors, 4])
             x = tf.reshape(x, [B, H * W * num_anchors, 4])
 
@@ -65,6 +68,12 @@ class LocalizationHead(tf.keras.Layer):
         return final_output
 
     def build(self,input_shape):
+        
+        # Clearing the heads
+        self.heads = []
+        self.squeeze_heads = []
+        self.intermediate_heads = [] if self.intermediate_channels is not None else None
+        
         for layer,feature_map_shape in enumerate(input_shape):
             channel = int(feature_map_shape[-1])
 
@@ -86,6 +95,9 @@ class LocalizationHead(tf.keras.Layer):
             
             pred_head = self.make_head(self.head_type, A_per_layer * 4, index = layer, role = "pred")
             self.heads.append(pred_head)
+            
+        # Calling the super build
+        super().build(input_shape)
         
     def make_head(self,head_type: str, out_channels: int, index: int, role: str):
         base = f"{self.name}_loc_{role}_{index}"
@@ -179,6 +191,17 @@ class ClassificationHead(tf.keras.Layer):
             H = tf.shape(x)[1]
             W = tf.shape(x)[2]
 
+            tf.debugging.assert_equal(tf.shape(x)[-1], tf.constant(num_anchors * C, dtype=tf.int32), message=f"Expected last dimension to be {num_anchors * C} but got {tf.shape(x)[-1]}")
+
+            # tf.print("C=", C, "num_anchors=", num_anchors, "x.shape=", tf.shape(x))
+            
+            expected = B * H * W * num_anchors * C
+            tf.debugging.assert_equal(tf.size(x),expected,message="Total element count mismatch before flatten reshape")
+
+            # tf.print("LAYER", layer, "B", B, "H", H, "W", W, "A", num_anchors, "C", C,
+            #             "x.shape", tf.shape(x), "x.size", tf.size(x),
+            #             "expected", expected
+            #         )
             # The shape must be (B,H,W,A*C)
             x = tf.reshape(x,[B,H,W,num_anchors,C])
             x = tf.reshape(x,[B,H * W * num_anchors,C])
@@ -187,6 +210,11 @@ class ClassificationHead(tf.keras.Layer):
         return tf.concat(outputs,axis=1)
 
     def build(self,input_shape):
+        # Clearing the heads
+        self.squeeze_blocks = []
+        self.intermediate_blocks = [] if self.intermediate_channels is not None else None
+        self.final_heads = []
+        
         for layer,feature_map_shape in enumerate(input_shape):
             channel = int(feature_map_shape[-1])
             # Calculating the squeeze heads
@@ -208,6 +236,9 @@ class ClassificationHead(tf.keras.Layer):
             # Create final head
             pred_head = self.create_head(out_channels = A_per_layer * self.number_of_classes, index = layer, role = "pred")
             self.final_heads.append(pred_head)
+            
+        # Calling the super build
+        super().build(input_shape)
 
     def create_pred_heads(self,anchors_per_layer: list[int]):
         heads = []

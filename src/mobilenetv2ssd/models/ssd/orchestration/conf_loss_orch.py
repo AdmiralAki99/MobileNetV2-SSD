@@ -2,12 +2,13 @@ import tensorflow as tf
 from typing import Any
 
 from mobilenetv2ssd.models.ssd.ops.loss_ops_tf import softmax_cross_entropy_loss
+from mobilenetv2ssd.core.precision_config import PrecisionConfig
 
 def _extract_information_from_train_config(config : dict[str, Any]):
     train_config = config['train']
     loss_config = train_config.get("loss",{})
     loss_config = {
-        "cls_loss_type": loss_config.get("cls_loss_type","ce_softmax"),
+        "cls_loss_type": loss_config.get("cls_loss_type","softmax_ce"),
         "from_logits": loss_config.get("from_logits",False),
         "ignore_index": loss_config.get("ignore_index",-1),
         "use_sigmoid": loss_config.get("use_sigmoid",False),
@@ -15,7 +16,7 @@ def _extract_information_from_train_config(config : dict[str, Any]):
 
     return loss_config
 
-def build_conf_loss(config: dict[str,Any], predicted_logits: tf.Tensor, classification_targets: tf.Tensor, pos_mask: tf.Tensor, neg_mask: tf.Tensor, ignore_mask: tf.Tensor):
+def build_conf_loss(config: dict[str,Any], predicted_logits: tf.Tensor, classification_targets: tf.Tensor, pos_mask: tf.Tensor, neg_mask: tf.Tensor, ignore_mask: tf.Tensor, precision_config: PrecisionConfig | None = None):
     # This is the orchestrator to calculate the confidence loss between the priors and the matched boxes
     # Steps:
     # 1. Get the config for the loss

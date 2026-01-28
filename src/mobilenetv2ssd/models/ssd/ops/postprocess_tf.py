@@ -7,8 +7,7 @@ def _decode_boxes(predicted_offsets: tf.Tensor, priors: tf.Tensor, variances: tf
     N = tf.shape(predicted_offsets)[1]
 
     # Variance size
-    variance_center = variances[0]
-    variance_shape = variances[1]
+    variance_center, variance_shape = tf.unstack(variances, axis=-1)
     
     # Broadcasting the priors to the shape for the offsets
     broadcasted_priors = tf.broadcast_to(priors[tf.newaxis,...],[B,N,4])
