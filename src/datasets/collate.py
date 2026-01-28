@@ -93,12 +93,12 @@ def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionData
 
     # Padding the batch is crucial for the dataset
     tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
-        'boxes' : tf.constant(dataset_opts['padding_values']['boxes'], tf.float32),
-        'image' : tf.constant(dataset_opts['padding_values']['image'], tf.float32),
-        'labels' : tf.constant(dataset_opts['padding_values']['labels'], tf.int32),
+        'boxes' : tf.constant(-1, tf.float32),
+        'image' : tf.constant(0, tf.float32),
+        'labels' : tf.constant(0, tf.int32),
         'image_id' : tf.constant('', tf.string),
-        'hash_signature' : tf.constant('', tf.string),
         'path' : tf.constant('', tf.string),
+        'orig_size': tf.constant(0, tf.int32)
     })
 
     # Mapping a valid mask function

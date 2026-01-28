@@ -1,3 +1,4 @@
+from unittest import case
 from matplotlib.pylab import shape
 import tensorflow as tf
 from typing import Any
@@ -420,8 +421,8 @@ def build_validation_augmentation_config(config: dict[str, Any]):
     validation_params = validation_opts.get('params', {})
 
     validation_config = {
-        'pipeline': validation_opts.get('pipeline', ['resize','sanitize_boxes','normalize']),
-        'standardize_pipeline': validation_opts.get('standardize_pipeline', ['to_float32', 'scale_01']),
+        'pipeline': validation_opts.get('pipeline', ['resize','normalize']),
+        'standardize_pipeline': validation_opts.get('standardize_pipeline', ['to_float32', 'sanitize_boxes', 'scale_01']),
         'output_box_norm': validation_opts.get('output_box_norm', False),
         'params': {
             'resize': {
@@ -457,6 +458,9 @@ def build_validation_transforms(config: dict[str, Any]):
             case 'to_float32':
                 float_transform = ToFloat32()
                 transform_list.append(float_transform)
+            case 'sanitize_boxes':
+                min_size = augment_config['params']['sanitize_boxes']['min_size']
+                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
             case 'scale_01':
                 scale = Scale01()
                 transform_list.append(scale)
@@ -472,9 +476,6 @@ def build_validation_transforms(config: dict[str, Any]):
                 target_size = augment_config['params'][key]['size']
                 mode = augment_config['params'][key]['mode']
                 transform_list.append(Resize(size = tuple(target_size), mode = mode))
-            case 'sanitize_boxes':
-                min_size = augment_config['params'][key]['min_size']
-                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
             case 'normalize':
                 mean = augment_config['params'][key]['mean']
                 std = augment_config['params'][key]['std']
