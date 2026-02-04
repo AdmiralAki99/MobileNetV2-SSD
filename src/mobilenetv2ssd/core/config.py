@@ -8,12 +8,14 @@ from typing import Any
 _ENV_PATTERN = re.compile(r"\$\{([^}:]+)(:-([^}]*))?\}")
 
 # Creating a main function to load the different files for the different configs for the components
-def load_config(cfg_path: str | Path, model_cfg_path: str | Path | None = None, data_cfg_path: str | Path | None = None, eval_cfg_path: str | Path | None = None, overrides: list[str] | None = None,):
+def load_config(cfg_path: str | Path, model_cfg_path: str | Path | None = None, data_cfg_path: str | Path | None = None, eval_cfg_path: str | Path | None = None, deploy_cfg_path: str | Path | None = None, engine_cfg_path: str | Path | None = None, overrides: list[str] | None = None,):
     # The arguments will hold 5 distinct things
     # 1. Main Config file (train file)
     # 2. Model Config File (Optional)
     # 3. Data Config File (Optional)
     # 4. Evaluation Config File (Optional)
+    # 5. Deployment Config File (Optional)
+    # 6. Engine Config File (Optional)
     # 5. Override Options (Optional)
     
     # Read the training yaml file
@@ -33,16 +35,30 @@ def load_config(cfg_path: str | Path, model_cfg_path: str | Path | None = None, 
         eval_cfg_path = PROJECT_ROOT / train_config["include"]["eval_cfg"]
     else:
         eval_cfg_path = PROJECT_ROOT / eval_cfg_path
+        
+    if deploy_cfg_path is None:
+        deploy_cfg_path = PROJECT_ROOT / train_config["include"].get("deploy_cfg", "")
+    else:
+        deploy_cfg_path = PROJECT_ROOT / deploy_cfg_path
+        
+    if engine_cfg_path is None:
+        engine_cfg_path = PROJECT_ROOT / train_config["include"].get("engine_cfg", "")
+    else:
+        engine_cfg_path = PROJECT_ROOT / engine_cfg_path
     
     # Reading the included files that are wanted
     model_config = read_yaml(model_cfg_path)
     data_config  = read_yaml(data_cfg_path)
     eval_config  = read_yaml(eval_cfg_path)
+    deploy_config = read_yaml(deploy_cfg_path)
+    engine_config = read_yaml(engine_cfg_path)
     
     # Merging the dicts to have the main dict
     main_config = merge_dict(train_config,model_config)
     main_config = merge_dict(main_config,data_config)
     main_config = merge_dict(main_config,eval_config)
+    main_config = merge_dict(main_config,deploy_config)
+    main_config = merge_dict(main_config,engine_config)
     
     # Now checking for optional arguments
     if overrides:
