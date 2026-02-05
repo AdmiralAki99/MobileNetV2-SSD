@@ -8,68 +8,51 @@ from typing import Any
 _ENV_PATTERN = re.compile(r"\$\{([^}:]+)(:-([^}]*))?\}")
 
 # Creating a main function to load the different files for the different configs for the components
-def load_config(cfg_path: str | Path, model_cfg_path: str | Path | None = None, data_cfg_path: str | Path | None = None, eval_cfg_path: str | Path | None = None, deploy_cfg_path: str | Path | None = None, engine_cfg_path: str | Path | None = None, overrides: list[str] | None = None,):
-    # The arguments will hold 5 distinct things
-    # 1. Main Config file (train file)
-    # 2. Model Config File (Optional)
-    # 3. Data Config File (Optional)
-    # 4. Evaluation Config File (Optional)
-    # 5. Deployment Config File (Optional)
-    # 6. Engine Config File (Optional)
-    # 5. Override Options (Optional)
-    
-    # Read the training yaml file
-    train_config  = read_yaml(PROJECT_ROOT / cfg_path)
-    
-    if model_cfg_path is None:
-        model_cfg_path = PROJECT_ROOT / train_config["include"]["model_cfg"]
+def load_config(experiment_path: str | Path, config_root: str | Path | None = None, overrides: list[str] | None = None,):
+    # Resolving the config root
+    if config_root is None:
+        config_root = PROJECT_ROOT / "configs"
     else:
-        model_cfg_path = PROJECT_ROOT / model_cfg_path
-
-    if data_cfg_path is None:
-        data_cfg_path = PROJECT_ROOT / train_config["include"]["data_cfg"]
-    else:
-        data_cfg_path = PROJECT_ROOT / data_cfg_path
-
-    if eval_cfg_path is None:
-        eval_cfg_path = PROJECT_ROOT / train_config["include"]["eval_cfg"]
-    else:
-        eval_cfg_path = PROJECT_ROOT / eval_cfg_path
+        config_root = Path(config_root)
         
-    if deploy_cfg_path is None:
-        deploy_cfg_path = PROJECT_ROOT / train_config["include"].get("deploy_cfg", "")
-    else:
-        deploy_cfg_path = PROJECT_ROOT / deploy_cfg_path
+    # Resolving the experiment path
+    exp_path = Path(experiment_path)
+    if not exp_path.is_absolute() and not exp_path.exists():
+        exp_path = config_root / exp_path
         
-    if engine_cfg_path is None:
-        engine_cfg_path = PROJECT_ROOT / train_config["include"].get("engine_cfg", "")
-    else:
-        engine_cfg_path = PROJECT_ROOT / engine_cfg_path
+    experiment = read_yaml(exp_path)
     
-    # Reading the included files that are wanted
-    model_config = read_yaml(model_cfg_path)
-    data_config  = read_yaml(data_cfg_path)
-    eval_config  = read_yaml(eval_cfg_path)
-    deploy_config = read_yaml(deploy_cfg_path)
-    engine_config = read_yaml(engine_cfg_path)
+    # Gettings the defaults and recipes
+    defaults = experiment.get('defaults', {})
+    recipes = experiment.get('recipes', {})
     
-    # Merging the dicts to have the main dict
-    main_config = merge_dict(train_config,model_config)
-    main_config = merge_dict(main_config,data_config)
-    main_config = merge_dict(main_config,eval_config)
-    main_config = merge_dict(main_config,deploy_config)
-    main_config = merge_dict(main_config,engine_config)
+    # Merging all the configs together
+    merged_config: dict[str, Any] = {}
+    for component, default_path in defaults.items():
+        # Use recipe if exists, otherwise use default
+        config_path = recipes.get(component, default_path)
+        full_path = config_root / config_path
+        if full_path.exists():
+            merged_config = merge_dict(merged_config, read_yaml(full_path))
+            
+    # Merging the experiment overrides
+    exp_metadata_keys = {'experiment', 'infrastructure', 'defaults', 'recipes', 'overrides'}
+    merged_config = merge_dict(merged_config, {key: value for key, value in experiment.items() if key not in exp_metadata_keys})
     
-    # Now checking for optional arguments
+    if 'overrides' in experiment:
+        merged_config = merge_dict(merged_config, experiment['overrides'])
+    
+    merged_config['experiment'] = experiment.get('experiment', {})
+    merged_config['infrastructure'] = experiment.get('infrastructure', {})
+    
+    # Applying CLI overrides
     if overrides:
-        override_dicts = parse_cli_overrides(overrides)
-        main_config = merge_dict(main_config, override_dicts)
-    
-    main_config = inject_env_vars(main_config)
-    
-    main_config = _resolve_paths(main_config, PROJECT_ROOT)
-    
-    return main_config
+        merged_config = merge_dict(merged_config, parse_cli_overrides(overrides))
+        
+    merged_config = inject_env_vars(merged_config)
+    merged_config = _resolve_paths(merged_config, PROJECT_ROOT)
+
+    return merged_config
     
 
 def get_project_root() -> Path:
@@ -80,11 +63,14 @@ def read_yaml(path: Path | str):
     if type(path) == str:
         path = Path(path)
         
+    if not path.exists():
+        return {}
+        
     # Function to read YAML file
     with open(path, 'r') as file:
         data = yaml.load(file,Loader=yaml.SafeLoader)
         
-    return data
+    return data if data else {}
 
 def merge_dict(base: dict[str , any], override: dict[str , any]) -> dict[str , any]:
     result = deepcopy(base)
