@@ -17,7 +17,8 @@ class OptimizerFactory:
         if name == "sgd":
             momentum = float(config['momentum'])
             nesterov = bool(config['nesterov'])
-            return tf.keras.optimizers.SGD(learning_rate = learning_schedule , momentum = momentum, nesterov = nesterov, name = name)
+            weight_decay = float(config['weight_decay'])
+            return tf.keras.optimizers.SGD(learning_rate = learning_schedule , momentum = momentum, nesterov = nesterov, weight_decay= weight_decay, name = name)
         elif name in ("adam","adamw"):
             beta_1 = float(config['beta1'])
             beta_2 = float(config['beta2'])
@@ -31,8 +32,7 @@ class OptimizerFactory:
                             
     @staticmethod
     def build_optimizer_config(config: dict[str, Any]):
-        train_config = config['train']
-        optimizer_opts = train_config['optimizer']
+        optimizer_opts = config['optimizer']
         optimizer_config = {
             'name': optimizer_opts.get('name', 'sgd'),
             'lr': optimizer_opts.get('lr', 0.001),

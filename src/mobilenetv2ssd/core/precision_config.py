@@ -8,6 +8,9 @@ class PrecisionConfig:
             return True
 
         return False
+    
+    def get_forced_precision_fields(self):
+        return self._forced_precision_fields
 
 def should_force_fp32(tag : str, precision_config: PrecisionConfig | None = None):
     if precision_config is None:

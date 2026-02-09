@@ -26,12 +26,12 @@ def create_training_dataset_config(config: dict[str, Any]):
             'labels': training_dataset_opts.get('padded_shapes', {}).get('labels', [None]),
             'image_id': training_dataset_opts.get('padded_shapes', {}).get('image_id', []),
             'path': training_dataset_opts.get('padded_shapes', {}).get('path', []),
-            'orig_size': [2]
+            'orig_size': [2] # TODO: Add this to the config file in the future DIR: configs/data/*.yaml
         },
         'padding_values': {
             'image': training_dataset_opts.get('padding_values', {}).get('image', 0.0),
             'boxes': training_dataset_opts.get('padding_values', {}).get('boxes', -1.0),
-            'labels': training_dataset_opts.get('padding_values', {}).get('labels', -1),
+            'labels': training_dataset_opts.get('padding_values', {}).get('labels', 0),
         },
         'shuffle': training_dataset_opts.get('shuffle', False),
         'prefetch': training_dataset_opts.get('prefetch', False),
@@ -52,7 +52,7 @@ def create_validation_dataset_config(config: dict[str, Any]):
             'labels': validation_dataset_opts.get('padded_shapes', {}).get('labels', [None]),
             'image_id': validation_dataset_opts.get('padded_shapes', {}).get('image_id', []),
             'path': validation_dataset_opts.get('padded_shapes', {}).get('path', []),
-            'orig_size': [2]
+            'orig_size': [2] ## TODO: Add this to the config file in the future DIR: configs/data/*.yaml
         },
         'padding_values': {
             'image': validation_dataset_opts.get('padding_values', {}).get('image', 0.0),
@@ -80,7 +80,7 @@ def apply_transform(sample, transform):
         }
         image, target = transform(image, target)
         return {**sample, "image": image, "boxes": target["boxes"], "labels": target["labels"]}
-
+    
 def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionDataset, transform: Compose):
     dataset_opts = create_validation_dataset_config(config)
 
@@ -91,11 +91,14 @@ def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionData
         buffer_size = min(1000, len(dataset))
         tf_dataset = tf_dataset.shuffle(buffer_size, reshuffle_each_iteration=True)
 
+    # Adding the transforms
+    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
+
     # Padding the batch is crucial for the dataset
     tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
-        'boxes' : tf.constant(-1, tf.float32),
-        'image' : tf.constant(0, tf.float32),
-        'labels' : tf.constant(0, tf.int32),
+        'boxes' : tf.constant(dataset_opts['padding_values']['boxes'], tf.float32),
+        'image' : tf.constant(dataset_opts['padding_values']['image'], tf.float32),
+        'labels' : tf.constant(dataset_opts['padding_values']['labels'], tf.int32),
         'image_id' : tf.constant('', tf.string),
         'path' : tf.constant('', tf.string),
         'orig_size': tf.constant(0, tf.int32)
@@ -104,12 +107,11 @@ def create_validation_dataset(config: dict[str, Any], dataset: BaseDetectionData
     # Mapping a valid mask function
     tf_dataset = tf_dataset.map(_create_gt_mask, num_parallel_calls = tf.data.AUTOTUNE)
     
-    # Adding the transforms
-    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
 
-    # Adding prefetch
-    if dataset_opts['prefetch']:
-        tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
+
+    # # Adding prefetch
+    # if dataset_opts['prefetch']:
+    #     tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
     
     return tf_dataset
 
@@ -127,6 +129,9 @@ def create_training_dataset(dataset: BaseDetectionDataset, config: dict[str,Any]
     # Turning on repeat
     if dataset_opts['repeat']:
         tf_dataset = tf_dataset.repeat()
+        
+    # Adding the transforms
+    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
 
     tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
         'boxes' : tf.constant(-1, tf.float32),
@@ -140,11 +145,9 @@ def create_training_dataset(dataset: BaseDetectionDataset, config: dict[str,Any]
     # Mapping a valid mask function
     tf_dataset = tf_dataset.map(_create_gt_mask, num_parallel_calls = tf.data.AUTOTUNE)
 
-    # Adding the transforms
-    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
-
     # Adding prefetch
     if dataset_opts['prefetch']:
         tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
 
     return tf_dataset
+        

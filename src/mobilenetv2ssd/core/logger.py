@@ -1,15 +1,21 @@
 from __future__ import annotations
 import logging
 import sys
-import os
+import subprocess
+import socket
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Literal
 from dataclasses import dataclass, field
+from mobilenetv2ssd.core.fingerprint import Fingerprint
 import json
 
 import tensorflow as tf
 import numpy as np
+
+# TODO: Add Progress bars for training and validation loops, maybe using tqdm or a custom implementation that works well with the logging system
+# TODO: Add Timezone standatdization for timestamps, maybe using UTC or allowing the user to specify a timezone in the config
 
 class Colours:
     RESET = "\033[0m"
@@ -133,29 +139,40 @@ class TensorBoardWriter:
     def scalar(self, tag: str, value: float, step: int):
         with self.writer.as_default(step = step):
             tf.summary.scalar(tag, value)
+            
+        self.flush()
 
     def scalars(self, main_tag: str, values: dict[str, float], step: int):
         with self.writer.as_default(step = step):
             for name, value in values.items():
                 # Writing the scalars to the tensorboard
                 tf.summary.scalar(f"{main_tag}/{name}", value)
+                
+        self.flush()
 
     def image(self, tag: str, image: tf.Tensor | np.ndarray, step: int):
-        with self._writer.as_default(step = step):
+        with self.writer.as_default(step = step):
             # Writing the image to the tensorboard
             if len(image.shape) == 3:
                 image = tf.expand_dims(image,axis = 0)
 
             tf.summary.image(tag, image)
+            
+        self.flush()
+            
 
     def histogram(self, tag: str, values: tf.Tensor | np.ndarray, step : int):
-        with self._writer.as_default(step = step):
+        with self.writer.as_default(step = step):
             tf.summary.histogram(tag, values)
+        
+        self.flush()
 
     def text(self, tag: str, text: str, step: int):
-        with self._writer.as_default(step = step):
+        with self.writer.as_default(step = step):
             tf.summary.text(tag, text)
 
+        self.flush()
+        
     def flush(self):
         self._writer.flush()
 
@@ -169,8 +186,8 @@ class Logger:
         
         self.job_name = job_name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        self.job_dir = Path(log_dir) / f"{job_name}_{timestamp}"
+        
+        self.job_dir = Path(log_dir) / timestamp
         self.job_dir.mkdir(parents = True, exist_ok = True)
         
         self.tensorboard_dir = self.job_dir / "tensorboard"
@@ -201,6 +218,12 @@ class Logger:
         if tensorboard:
             self.tensorboard_dir.mkdir(exist_ok = True)
             self._tensorboard_writer = TensorBoardWriter(self.tensorboard_dir)
+            
+            try:
+                self.start_tensorboard()
+            except Exception as e:
+                self.warning(f"Failed to start TensorBoard server: {e}")
+
 
         # Storing a metric history
         self._metric_history: list[dict] = []
@@ -353,13 +376,137 @@ class Logger:
         # Wrapping up everything
         self.save_metric_history()
 
+         # Stop TensorBoard if running
+        if hasattr(self, '_tensorboard_process') and self._tensorboard_process is not None:
+            if self._tensorboard_process.poll() is None:
+                self.info("Stopping TensorBoard server...")
+                self._tensorboard_process.terminate()
+                try:
+                    self._tensorboard_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._tensorboard_process.kill()
+                    self._tensorboard_process.wait()
+
         if self._tensorboard_writer:
             self._tensorboard_writer.close()
 
         for handler in self._logger.handlers:
             handler.close()
             self._logger.removeHandler(handler)
+            
+    def start_tensorboard(self, port: int = 6006, host: str = "0.0.0.0", log_dir: str | Path | None = None):
+        
+        # Use provided log_dir or default to tensorboard_dir
+        target_dir = Path(log_dir).resolve() if log_dir else self.tensorboard_dir
+        
+        if not target_dir.exists():
+            raise ValueError(f"Log directory does not exist: {target_dir}")
+        
+        # Check if our stored process is still running
+        if hasattr(self, '_tensorboard_process') and self._tensorboard_process is not None:
+            if self._tensorboard_process.poll() is None:
+                self.info(f"TensorBoard is already running on port {port}")
+                return self._tensorboard_process
+            else:
+                # Process died, clean up
+                self._tensorboard_process = None
+        
+        # Check if any process is using the port (could be from a previous run)
+        def is_port_in_use(port: int) -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(('0.0.0.0', port))
+                    return False
+                except OSError:
+                    return True
+        
+        if is_port_in_use(port):
+            self.warning(f"Port {port} is already in use - TensorBoard may already be running")
+            self.info(f"Try accessing: http://localhost:{port}")
+            self.info(f"To use a different port, call: logger.start_tensorboard(port=XXXX)")
+            return None
+        
+        if not target_dir.exists():
+            raise ValueError(f"Log directory does not exist: {target_dir}")
+        
+        # Check if TensorBoard is already running
+        if hasattr(self, '_tensorboard_process') and self._tensorboard_process is not None:
+            if self._tensorboard_process.poll() is None:
+                self.warning("TensorBoard is already running")
+                return self._tensorboard_process
+        
+        # Start TensorBoard
+        cmd = [
+            "tensorboard",
+            "--logdir", str(target_dir),
+            "--port", str(port),
+            "--host", host,
+            "--bind_all"
+        ]
+        
+        self.info(f"Starting TensorBoard on port {port}...")
+        self.info(f"Log directory: {target_dir}")
+        
+        self._tensorboard_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Give TensorBoard time to start
+        time.sleep(3)
+        
+        # Check if process started successfully
+        if self._tensorboard_process.poll() is not None:
+            _, stderr = self._tensorboard_process.communicate()
+            self.error(f"TensorBoard failed to start: {stderr}")
+            raise RuntimeError(f"TensorBoard failed to start: {stderr}")
+        
+        # Get network information for access instructions
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+        except:
+            local_ip = "YOUR_IP_ADDRESS"
+        
+        # Log access information
+        self.success("TensorBoard is running!")
+        self.info("-" * 60)
+        self.info("Access URLs:")
+        self.info(f"  Local:        http://localhost:{port}")
+        self.info(f"  Network:      http://{local_ip}:{port}")
+        self.info(f"  Remote/Cloud: http://YOUR_SERVER_IP:{port}")
+        self.info("-" * 60)
+        self.info("For AWS/Cloud instances:")
+        self.info(f"  1. Ensure security group allows inbound traffic on port {port}")
+        self.info(f"  2. Use: http://<your-instance-public-ip>:{port}")
+        self.info("")
+        self.info("For SSH port forwarding (more secure, no open ports needed):")
+        self.info(f"  ssh -L {port}:localhost:{port} user@remote-server")
+        self.info(f"  Then access: http://localhost:{port}")
+        self.info("-" * 60)
+        
+        return self._tensorboard_process
+    
+    def stop_tensorboard(self):
 
+        if hasattr(self, '_tensorboard_process') and self._tensorboard_process is not None:
+            if self._tensorboard_process.poll() is None:
+                self.info("Stopping TensorBoard...")
+                self._tensorboard_process.terminate()
+                try:
+                    self._tensorboard_process.wait(timeout=5)
+                    self.success("TensorBoard stopped")
+                except subprocess.TimeoutExpired:
+                    self._tensorboard_process.kill()
+                    self._tensorboard_process.wait()
+                    self.warning("TensorBoard forcefully killed")
+            else:
+                self.info("TensorBoard is not running")
+            self._tensorboard_process = None
+        else:
+            self.info("No TensorBoard process found")
 
     def __enter__(self):
         return self
@@ -370,8 +517,26 @@ class Logger:
 
         self.close()
         
-def build_logger_from_config(config: dict, job_name: str | None = None):
-    logging_config = config.get('logging', {})
-
-    return Logger(job_name = job_name, log_dir = logging_config.get('log_dir', "logs"), tensorboard = logging_config.get('tensorboard', True), console = logging_config.get('console', True), file = logging_config.get('file', True), level = logging_config.get('level', "info"))
-
+def build_logger_from_config(config: dict, fingerprint: Fingerprint = None):
+    
+    # Check if the run directory is specified in the config, if not use a default one
+    experiment_name = config.get("experiment", {}).get("id", "default_experiment")
+    fingerprint_str = str(fingerprint.short) if fingerprint else "no_fingerprint"
+    name_format = config.get("run", {}).get('name_format', "{experiment_id}_{fingerprint}")
+    
+    name_format = name_format.replace("{experiment_id}", experiment_name)
+    name_format = name_format.replace("{fingerprint}", fingerprint_str)
+    
+    job_name = name_format
+    run_dir = config.get("run", {}).get("root", "runs")
+    log_dir = config.get("run", {}).get("logs", "logs")
+    
+    run_dir = Path(run_dir)
+    log_dir = run_dir / job_name / log_dir
+    
+    tensorboard = config.get("logging", {}).get("tensorboard", {}).get("enabled", True)
+    file = config.get("logging", {}).get("file", {}).get("enabled", True)
+    console = config.get("logging", {}).get("console", {}).get("enabled", True)
+    level = config.get("logging", {}).get("level", "info")
+    
+    return Logger(job_name = job_name, log_dir = log_dir, tensorboard = tensorboard, console = console, file = file, level = level)

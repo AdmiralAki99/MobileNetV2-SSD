@@ -163,8 +163,7 @@ class EMA(tf.Module):
                 self.restore(model)
                 
 def get_ema_config(config: dict[str,Any]):
-    train_config = config.get('train',{})
-    ema_options= train_config.get('ema',{})
+    ema_options= config.get('ema',{})
 
     ema_config = {
         'enabled': ema_options.get('enabled',True),

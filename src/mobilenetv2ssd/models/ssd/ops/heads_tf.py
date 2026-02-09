@@ -55,7 +55,7 @@ class LocalizationHead(tf.keras.Layer):
             W = tf.shape(x)[2]
             
             # tf.print("num_anchors=", num_anchors, " x.shape=", tf.shape(x), " layer=",layer," H=", H," W=", W)
-            tf.debugging.assert_equal(tf.shape(x)[-1], num_anchors * 4)
+            tf.debugging.assert_equal(tf.shape(x)[-1], tf.cast(num_anchors * 4, dtype= tf.int32))
             
             x = tf.reshape(x, [B, H, W, num_anchors, 4])
             x = tf.reshape(x, [B, H * W * num_anchors, 4])
@@ -271,6 +271,9 @@ class ClassificationHead(tf.keras.Layer):
     def create_head(self, out_channels: int, index: int, role: str):
         base = f"{self.name}_cls_{role}_{index}"
         if self.head_type == "conv3x3":
+            if role == "pred":
+                # Need to initialize the bias and kernel differently for prediction layer
+                return tf.keras.layers.Conv2D(filters=out_channels, kernel_size=3,padding="same",name=base, kernel_initializer= tf.keras.initializers.RandomNormal(stddev=0.01), bias_initializer= tf.keras.initializers.Zeros())
             return tf.keras.layers.Conv2D(filters=out_channels, kernel_size=3,padding="same",name=base)
         elif self.head_type == "depthwise":
             dw_name = f"{base}_dw"

@@ -4,28 +4,24 @@ from typing import Any
 from mobilenetv2ssd.models.ssd.model import SSD
 
 def _extract_information_from_model_config(config : dict[str, Any]):
-    
-    model_config = config['model']
-    
+       
     # Getting the specs for the model 
-    input_shape = model_config.get('input_size',[300,300,3])
-    alpha = model_config.get('width_mult',1.0)
+    input_shape = config['input_size'] + [3]
+    alpha = config.get('backbone',{}).get('width_mult',1.0)
     
-    backbone_type = model_config.get('backbone','mobilenetv2')
-    ssd_name = model_config.get('name',"mobilenetv2-ssd")
+    backbone_type =  config.get('backbone',{}).get('name','mobilenetv2')
+    ssd_name = backbone_type + '-ssd'
     
-    num_classes = model_config['num_classes']
-    feature_map_config = model_config['ssd']['feature_maps']
+    num_classes = config['num_classes']
     
-    backbone_features = feature_map_config.get('backbone_features', ["C3", "C4", "C5"])
+    backbone_features = config.get('backbone',{}).get('output_layers',["C3", "C4", "C5"])
     
-    extra_base = feature_map_config.get('extra_base', None)
+    extra_base = config.get('heads',{}).get('extra_layers',{}).get('base_feature',backbone_features[-1])
     
-    extra_levels = feature_map_config.get('extra_levels', [{'name': 'P6', 'out_channels': 256, 'stride': 2, 'kernel_size': 3},{'name': 'P7', 'out_channels': 256, 'stride': 2, 'kernel_size': 3},{'name': 'P8', 'out_channels': 128, 'stride': 2, 'kernel_size': 3}])
+    extra_levels =  config.get('heads',{}).get('extra_layers',{}).get('levels',[{'name': 'P6', 'out_channels': 256, 'stride': 2, 'kernel_size': 3},{'name': 'P7', 'out_channels': 256, 'stride': 2, 'kernel_size': 3},{'name': 'P8', 'out_channels': 128, 'stride': 2, 'kernel_size': 3}])
     
-    head_config = model_config.get("heads",{})
-    localization_config = head_config.get('localization',{})
-    classification_config = head_config.get('classification',{})
+    localization_config = config.get("heads",{}).get('localization',{})
+    classification_config = config.get("heads",{}).get('classification',{})
 
     return input_shape, alpha, backbone_type, ssd_name, num_classes, backbone_features, localization_config, classification_config,extra_levels, extra_base
 

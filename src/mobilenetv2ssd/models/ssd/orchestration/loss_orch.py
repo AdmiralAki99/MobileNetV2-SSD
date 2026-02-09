@@ -5,13 +5,11 @@ from mobilenetv2ssd.models.ssd.ops.loss_ops_tf import multibox_loss
 from mobilenetv2ssd.core.precision_config import PrecisionConfig
 
 def _extract_information_from_train_config(config : dict[str, Any]):
-    train_config = config['train']
-    model_config = config['model']
-    loss_config = train_config.get("loss",{})
+    loss_config = config.get("loss",{})
     loss_config = {
-        "cls_loss_type": loss_config.get("cls_loss_type","ce_softmax"),
-        "reg_loss_type": loss_config.get("reg_loss_type","smooth_l1"),
-        "smooth_l1_beta": loss_config.get("smooth_l1_beta",1.0),
+        "cls_loss_type": loss_config.get('classification').get("type","softmax_ce"),
+        "reg_loss_type": loss_config.get('regression').get("type","smooth_l1"),
+        "smooth_l1_beta": loss_config.get('regression').get("beta",1.0),
         "bbox_norm": loss_config.get("bbox_norm","none"),
         "from_logits": loss_config.get("from_logits",False),
         "ignore_index": loss_config.get("ignore_index",-1),
@@ -19,7 +17,7 @@ def _extract_information_from_train_config(config : dict[str, Any]):
         "classification_weights": loss_config.get("cls_weight",1.0),
         "localization_weights": loss_config.get("reg_weight",1.0),
         "normalization_denom": loss_config.get("normalization",{}).get("type","num_pos"),
-        "num_classes": model_config.get("num_classes",1),
+        "num_classes": config.get("num_classes",1),
         "reduction": loss_config.get("reduction","sum")
     }
 

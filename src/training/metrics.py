@@ -1,467 +1,342 @@
-from typing import List, Dict, Any
-from abc import ABC, abstractmethod
-import tensorflow as tf
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any, Literal
 import numpy as np
+import tensorflow as tf
 
-class BaseMetric(ABC):
-    def __init__(self, name:str):
-        self._name = name
-        
-    @abstractmethod
-    def update(self,preds: list[Dict[str,Any]], ground_truth: list[Dict[str,Any]]):
-        pass
-        
-    @abstractmethod
-    def compute(self):
-        pass
-
-    def reset(self):
-        pass
-        
-    @property
-    def name(self):
-        return self._name
+@dataclass
+class Detection:
+    image_id: str
+    boxes: np.ndarray
+    scores: np.ndarray
+    labels: np.ndarray
     
-class VOCMAP(BaseMetric):
-    def __init__(self, iou_thresh,num_classes: int,name: str):
-        super().__init__(name = name)
-        
-        if isinstance(iou_thresh, (list, tuple)):
-            self.iou_thresh = [float(t) for t in iou_thresh]
-        else:
-            self.iou_thresh = [float(iou_thresh)]
-            
-        self.num_classes = num_classes
-        # Initialize the pred & gt lists
-        self._preds = []
-        self._ground_truth = []
-
-    def reset(self):
-        self._preds = []
-        self._ground_truth = []
-
-    def update(self,preds,ground_truth):
-        for pred in preds:
-            self._preds.append(
-                (pred['image_id'], pred['boxes'], pred['scores'], pred['labels'])
-            )
-
-        for gt in ground_truth:
-            self._ground_truth.append(
-                (gt['image_id'], gt['boxes'], gt['labels'])
-            )
-
-    def compute(self):
-        if len(self._ground_truth) == 0:
-            results = {}
-            for t in self.iou_thresh:
-                results[f"mAP@{t}"] = 0.0
-            return results
-
-        combined = {}
-        for t in self.iou_thresh:
-            stats_t = self._compute_for_single_iou(t)
-            combined.update(stats_t)
-
-        return combined
-
-    def _compute_for_single_iou(self, iou_thr):
+@dataclass
+class GroundTruth:
+    image_id: str
+    boxes: np.ndarray
+    labels: np.ndarray
     
-        # GT Structures per class
-        ground_truth_per_class = {c: {} for c in range(self.num_classes)}
-        num_pos_per_class = {c: 0 for c in range(self.num_classes)}
-
-        for image_id, gt_boxes, gt_labels in self._ground_truth:
-            # Copying the boxes for calculations
-            gt_boxes = np.asarray(gt_boxes,dtype = np.float32)
-            gt_labels = np.asarray(gt_labels,dtype = np.int32)
-
-            # Iterating over the boxes and their corresponding labels
-            for gt_box, gt_label in zip(gt_boxes, gt_labels):
-                class_num = int(gt_label)
-                if class_num == 0:
-                    # Background which is not needed
-                    continue
-
-                if image_id not in ground_truth_per_class[class_num]:
-                    # Initial creation of the images records
-                    ground_truth_per_class[class_num][image_id] = {
-                        "boxes": [],
-                        "detected": []
-                    }
-
-                ground_truth_per_class[class_num][image_id]["boxes"].append(gt_box)
-                ground_truth_per_class[class_num][image_id]["detected"].append(False)
-                num_pos_per_class[class_num] = num_pos_per_class[class_num] + 1
-
-        # Making them into numpy arrays for easier reduction
-        for class_num in range(self.num_classes):
-            for image_id, data in ground_truth_per_class[class_num].items():
-                data['boxes'] = np.asarray(data['boxes'], dtype=np.float32)
-                data['detected'] = np.asarray(data["detected"], dtype=bool)
-
-        # Calculating the predictions per class
-        pred_per_class = {c: [] for c in range(self.num_classes)}
-
-        for image_id, pred_box, pred_scores, pred_labels in self._preds:
-            pred_box = np.asarray(pred_box,dtype = np.float32)
-            pred_scores = np.asarray(pred_scores,dtype = np.float32)
-            pred_labels = np.asarray(pred_labels,dtype = np.int32)
-
-            # Iterating through all the predictions
-            for bbox, score, label in zip(pred_box, pred_scores, pred_labels):
-                class_num = int(label)
-                if class_num == 0:
-                    # Background which is not needed
-                    continue
-
-                pred_per_class[class_num].append({"image_id": image_id, "box": bbox, "score": float(score)})
-
-
-        # Now calculating AP per class after creation of the data
-        ap_per_class = {}
-
-        for class_num in range(1, self.num_classes):
-            preds_for_class = pred_per_class[class_num]
-            num_pos = num_pos_per_class[class_num]
-
-            if num_pos == 0:
-                # There was no ground truth box for this class
-                continue
-
-            if len(preds_for_class) == 0:
-                ap_per_class[class_num] = 0.0
-                continue
-
-            # Sorting the predictions by score
-            preds_for_class.sort(key = lambda data: data['score'],reverse = True)
-
-            TP = np.zeros(len(preds_for_class), dtype = np.float32)
-            FP = np.zeros(len(preds_for_class), dtype = np.float32)
-
-            for index, pred in enumerate(preds_for_class):
-                image_id = pred['image_id']
-                bbox = np.asarray(pred['box'], dtype = np.float32)
-
-                if image_id not in ground_truth_per_class[class_num]:
-                    FP[index] = 1.0
-                    continue
-
-                ground_truth_data = ground_truth_per_class[class_num][image_id]
-                ground_truth_boxes = ground_truth_data['boxes']
-                detected = ground_truth_data['detected']
-
-                iou_matrix = _box_iou_xyxy(bbox, ground_truth_boxes)
-                max_iou_per_index = int(np.argmax(iou_matrix)) if iou_matrix.size > 0 else -1
-                max_iou = iou_matrix[max_iou_per_index] if iou_matrix.size > 0 else 0.0
-
-                if max_iou >= iou_thr and not detected[max_iou_per_index]:
-                    TP[index] = 1.0
-                    detected[max_iou_per_index] = True
-                else:
-                    FP[index] = 1.0
-
-            TP_cum = np.cumsum(TP)
-            FP_cum = np.cumsum(FP)
-
-            # Calculating the recall and precision
-            recall = TP_cum / float(num_pos)
-            precision = TP_cum / np.maximum(TP_cum + FP_cum, 1e-6) # division by zero safe guard
-
-            # calculate the AP
-            ap = self._voc_ap(recall,precision)
-            ap_per_class[class_num] = float(ap)
-
-        valid_aps = [ap for c, ap in ap_per_class.items() if num_pos_per_class[c] > 0]
-
-        if len(valid_aps) == 0.0:
-            mAP = 0.0
-        else:
-            mAP = float(np.mean(valid_aps))
-
-        results = {
-            f"mAP@{iou_thr}": mAP,
-        }
-
-        for c, ap in ap_per_class.items():
-            if num_pos_per_class[c] > 0:
-                results[f"mAP@{iou_thr}/class_{c}"] = ap
-
-        return results
-
-    def _voc_ap(self, recall: np.ndarray, precision: np.ndarray):
-        mrec = np.concatenate(([0.0], recall, [1.0]))
-        mpre = np.concatenate(([0.0], precision, [0.0]))
-
-        for i in range(mpre.size - 1, 0, -1):
-            mpre[i - 1] = max(mpre[i - 1], mpre[i])
-
-        idx = np.where(mrec[1:] != mrec[:-1])[0]
-
-        ap = 0.0
-        for i in idx:
-            ap += (mrec[i + 1] - mrec[i]) * mpre[i + 1]
-
-        return ap
-
-class COCOMAP(BaseMetric):
-    def __init__(self, iou_thresh: list[float] | None,num_classes: int,name: str):
-        super().__init__(name = name)
-        self.num_classes = num_classes
-
-        if iou_thresh is None:
-            iou_thresh = [0.5 + 0.05 * i for i in range(10)]
-
-        if isinstance(iou_thresh, (list, tuple)):
-            self.iou_thresh = [float(t) for t in iou_thresh]
-        else:
-            self.iou_thresh = [float(iou_thresh)]
+@dataclass
+class ClassGroundTruth:
+    boxes: np.ndarray
+    detected: np.ndarray
+    
+    
+class MeanAveragePrecision:
+    def __init__(self, num_classes: int, iou_thresholds: list[float] | float = 0.5, style: Literal["voc", "coco"] = "voc", class_names: dict[int, str] | None = None):
         
-        # Initialize the pred & gt lists
-        self._preds = []
-        self._ground_truth = []
+        self.num_classes = num_classes
+        self.style = style
+        self.class_names = class_names or {}
+
+        if isinstance(iou_thresholds, (int, float)):
+            self.iou_thresholds = [float(iou_thresholds)]
+        else:
+            self.iou_thresholds = [float(thresh) for thresh in iou_thresholds]
+
+        self._predictions: list[Detection] = []
+        self._ground_truths: list[GroundTruth] = []
 
     def reset(self):
-        self._preds = []
-        self._ground_truth = []
+        self._predictions.clear()
+        self._ground_truths.clear()
 
-    def update(self,preds,ground_truth):
-        for pred in preds:
-            self._preds.append(
-                (pred['image_id'], pred['boxes'], pred['scores'], pred['labels'])
-            )
-
-        for gt in ground_truth:
-            self._ground_truth.append(
-                (gt['image_id'], gt['boxes'], gt['labels'])
-            )
-
-    def compute(self):
-        if len(self._ground_truth) == 0:
-            # No GT at all: define all metrics as 0
-            key = f"{self.name}/mAP@[{self.iou_thresh[0]:.2f}:{self.iou_thresh[-1]:.2f}]"
-            return {key: 0.0}
-
-        num_iou = len(self.iou_thresh)
-
-        # GT Structures per class
-        ground_truth_per_class = {c: {} for c in range(self.num_classes)}
-        num_pos_per_class = {c: 0 for c in range(self.num_classes)}
-
-        for image_id, gt_boxes, gt_labels in self._ground_truth:
-            # Copying the boxes for calculations
-            gt_boxes = np.asarray(gt_boxes,dtype = np.float32)
-            gt_labels = np.asarray(gt_labels,dtype = np.int32)
-
-            # Iterating over the boxes and their corresponding labels
-            for gt_box, gt_label in zip(gt_boxes, gt_labels):
-                class_num = int(gt_label)
-                if class_num == 0:
-                    # Background which is not needed
-                    continue
-
-                if image_id not in ground_truth_per_class[class_num]:
-                    # Initial creation of the images records
-                    ground_truth_per_class[class_num][image_id] = {
-                        "boxes": [],
-                    }
-
-                ground_truth_per_class[class_num][image_id]["boxes"].append(gt_box)
-                num_pos_per_class[class_num] = num_pos_per_class[class_num] + 1
-
-        for class_num in range(self.num_classes):
-            for image_id, data in ground_truth_per_class[class_num].items():
-                data['boxes'] = np.asarray(data['boxes'], dtype=np.float32)
-                
-        # Calculating the predictions per class
-        pred_per_class = {c: [] for c in range(self.num_classes)}
-
-        for image_id, pred_box, pred_scores, pred_labels in self._preds:
-            pred_box = np.asarray(pred_box,dtype = np.float32)
-            pred_scores = np.asarray(pred_scores,dtype = np.float32)
-            pred_labels = np.asarray(pred_labels,dtype = np.int32)
-
-            # Iterating through all the predictions
-            for bbox, score, label in zip(pred_box, pred_scores, pred_labels):
-                class_num = int(label)
-                if class_num == 0:
-                    # Background which is not needed
-                    continue
-
-                pred_per_class[class_num].append({"image_id": image_id, "box": bbox, "score": float(score)})
-
-        AP = np.full((self.num_classes, num_iou), np.nan, dtype=np.float32)
-
-        for class_num in range(1, self.num_classes):
-            preds_for_class = pred_per_class[class_num]
-            num_pos = num_pos_per_class[class_num]
-
-            if num_pos == 0:
-                # There was no ground truth box for this class
-                continue
-
-            if len(preds_for_class) == 0:
-                AP[class_num] = 0.0
-                continue
-
-            # Sorting the predictions by score
-            preds_for_class.sort(key = lambda data: data['score'],reverse = True)
-
-            for index, iou_thr in enumerate(self.iou_thresh):
-                detected_flags = {}
-                
-                for image_id, data in ground_truth_per_class[class_num].items():
-                    num_gt = data["boxes"].shape[0]
-                    detected_flags[image_id] = np.zeros(num_gt, dtype=bool)
-
-                TP = np.zeros(len(preds_for_class), dtype = np.float32)
-                FP = np.zeros(len(preds_for_class), dtype = np.float32)
-
-                for pred_index, pred in enumerate(preds_for_class):
-                    image_id = pred['image_id']
-                    bbox = np.asarray(pred['box'], dtype = np.float32)
-
-                    if image_id not in ground_truth_per_class[class_num]:
-                        FP[pred_index] = 1.0
-                        continue
-
-                    ground_truth_data = ground_truth_per_class[class_num][image_id]
-                    ground_truth_boxes = ground_truth_data['boxes']
-                    det_flags = detected_flags[image_id]
-
-                    iou_matrix = _box_iou_xyxy(bbox, ground_truth_boxes)
-                    if iou_matrix.size == 0:
-                        FP[pred_index] = 1.0
-                        continue
-
-                    max_iou_index = int(np.argmax(iou_matrix))
-                    max_iou = float(iou_matrix[max_iou_index])
-
-                    if max_iou >= iou_thr and not det_flags[max_iou_index]:
-                        TP[pred_index] = 1.0
-                        det_flags[max_iou_index] = True
-                    else:
-                        FP[pred_index] = 1.0
-
-                TP_cum = np.cumsum(TP)
-                FP_cum = np.cumsum(FP)
-
-                recall = TP_cum / float(num_pos)
-                precision = TP_cum / np.maximum(TP_cum + FP_cum, 1e-6) # division by zero safe guard
-
-                AP[class_num,index] = self._coco_ap_101(recall, precision)
-                
-        valid_classes  = [c for c in range(1, self.num_classes) if num_pos_per_class[c] > 0]
-
-        if len(valid_classes) == 0:
-            mAP = 0.0
-            ap50 = 0.0
-            ap75 = 0.0
-        else:
-            AP_valid = AP[valid_classes, :]
-            mAP = float(np.nanmean(AP_valid))
+    def update(self, predictions: list[dict], ground_truths: list[dict]):
+        for prediction in predictions:
+            self._predictions.append(Detection(
+                image_id = self._to_str(prediction['image_id']),
+                boxes = np.asarray(prediction['boxes'], dtype = np.float32),
+                scores = np.asarray(prediction['scores'], dtype = np.float32),
+                labels = np.asarray(prediction['labels'], dtype = np.float32)
+            ))
             
-            ap50 = None
-            ap75 = None
+        for ground_truth in ground_truths:
+            self._ground_truths.append(GroundTruth(
+                image_id = self._to_str(ground_truth['image_id']),
+                boxes = np.asarray(ground_truth['boxes'], dtype = np.float32),
+                labels = np.asarray(ground_truth['labels'], dtype = np.float32)
+            ))
 
-            if 0.5 in self.iou_thresh:
-                t50_idx = self.iou_thresh.index(0.5)
-                ap50 = float(np.nanmean(AP_valid[:, t50_idx]))
-            if 0.75 in self.iou_thresh:
-                t75_idx = self.iou_thresh.index(0.75)
-                ap75 = float(np.nanmean(AP_valid[:, t75_idx]))
+    @staticmethod
+    def _to_str(val):
+        if isinstance(val, bytes):
+            return val.decode("utf-8")
+        return str(val)
 
-        key_main = f"{self.name}/mAP@[{self.iou_thresh[0]:.2f}:{self.iou_thresh[-1]:.2f}]"
-        results: dict[str, float] = {key_main: mAP}
-
-        if ap50 is not None:
-            results[f"{self.name}/AP@0.50"] = ap50
-        if ap75 is not None:
-            results[f"{self.name}/AP@0.75"] = ap75
-
-        return results
-
-    def _coco_ap_101(self, recall: np.ndarray, precision: np.ndarray):
+    def _organize_ground_truths(self):
         
-        if recall.size == 0:
+        by_class : dict[int, dict[str, GroundTruth]] = {}
+
+        for ground_truth in self._ground_truths:
+            for box, label in zip(ground_truth.boxes, ground_truth.labels):
+                class_num = int(label)
+
+                if class_num not in by_class:
+                    # Needs to be added
+                    by_class[class_num] = {}
+
+                # Now checking if the image is present in the class detections
+                if ground_truth.image_id not in by_class[class_num]:
+                    # Creating the place holders
+                    by_class[class_num][ground_truth.image_id] = ClassGroundTruth(
+                        boxes = np.empty((0,4), dtype = np.float32),
+                        detected = np.empty((0,), dtype= bool)
+                    )
+
+                # It exists in the list by now
+                class_gt = by_class[class_num][ground_truth.image_id]
+                by_class[class_num][ground_truth.image_id] = ClassGroundTruth(
+                    boxes = np.vstack([class_gt.boxes, box.reshape(1,4)]),
+                    detected = np.append(class_gt.detected, False)
+                )
+
+        return by_class
+
+    def _count_positives(self, ground_truth_by_class: dict):
+
+        positive_counts = {class_num: 0 for class_num in range(self.num_classes)}
+
+        for class_index, images in ground_truth_by_class.items():
+            for class_gt in images.values():
+                positive_counts[class_index] = positive_counts[class_index] + len(class_gt.boxes)
+        return positive_counts
+
+    def _organize_predictions(self):
+
+        preds_by_class: dict[int, list[dict]] = {}
+
+        for detection in self._predictions:
+            for box, score, label in zip(detection.boxes, detection.scores, detection.labels):
+                class_index = int(label)
+                # Checking if the detection is a background
+                if class_index == 0:
+                    continue
+
+                # Creating predictions by class
+                if class_index not in preds_by_class:
+                    preds_by_class[class_index] = []
+
+                preds_by_class[class_index].append({
+                    'image_id': detection.image_id,
+                    'box': box,
+                    'score': float(score)
+                })
+
+        # Sorting by class index for easier debugging
+        for class_index in preds_by_class:
+            preds_by_class[class_index].sort(key = lambda x: x['score'], reverse = True)
+        
+        return preds_by_class
+
+    @staticmethod
+    def _ap_101_point(recall: np.ndarray, precision:np.ndarry):
+        if len(recall) == 0:
             return 0.0
 
-        rec = np.asarray(recall, dtype=np.float32)
-        prec = np.asarray(precision, dtype=np.float32)
+        recall_pts = np.linspace(0.0, 1.0, 101)
+        precision_inter = np.zeros_like(recall_pts)
 
-        recall_samples = np.linspace(0.0, 1.0, 101, dtype=np.float32)
-        precisions_interp = np.zeros_like(recall_samples)
+        for index, recall_pt in enumerate(recall_pts):
+            valid_mask = recall >= recall_pt
+            if np.any(valid_mask):
+                precision_inter[index] = np.max(precision[valid_mask])
 
-        for i, r in enumerate(recall_samples):
-            # precision at recall >= r
-            mask = rec >= r
-            if np.any(mask):
-                precisions_interp[i] = np.max(prec[mask])
+        return float(np.mean(precision_inter))
+    
+    @staticmethod
+    def _ap_voc(recall: np.ndarray, precision: np.ndarray):
+
+        mrec = np.concatenate([[0.0], recall, [1.0]])
+        mpre = np.concatenate([[0.0], precision, [0.0]])
+
+        for index in range(len(mpre) - 1, 0, -1):
+            mpre[index - 1] = max(mpre[index - 1], mpre[index])
+
+        index = np.where(mrec[1:] != mrec[:-1])[0]
+
+        AP = np.sum((mrec[index + 1] - mrec[index]) * mpre[index + 1])
+        return float(AP)
+
+    def _format_results(self, AP: np.ndarray, num_positives: dict[int,int]):
+        results = {}
+    
+        valid_classes = [class_num for class_num in range(1, self.num_classes) if num_positives[class_num] > 0]
+
+        if not valid_classes:
+            for thresh in self.iou_thresholds:
+                results[f"mAP@{thresh:.2f}"] = 0.0
+            return results
+
+        AP_valid = AP[valid_classes, :]
+
+        if self.style == "coco" and len(self.iou_thresholds) > 1:
+            mAP = float(np.mean(AP_valid))
+
+            threshold_start, threshold_end = self.iou_thresholds[0], self.iou_thresholds[-1]
+            results[f"mAP@[{threshold_start:.2f}:{threshold_end:.2f}]"] = mAP
+
+            if 0.5 in self.iou_thresholds:
+                index = self.iou_thresholds.index(0.5)
+                results["AP@0.50"] = float(np.mean(AP_valid[:, index]))
+            if 0.75 in self.iou_thresholds:
+                index = self.iou_thresholds.index(0.75)
+                results["AP@0.75"] = float(np.mean(AP_valid[:, index]))
+        else:
+            for iou_index, iou_threshold in enumerate(self.iou_thresholds):
+                mAP = float(np.mean(AP_valid[:,iou_index]))
+                results[f"mAP@{iou_threshold:.2f}"] = mAP
+
+        for class_index in valid_classes:
+            class_name = self.class_names.get(class_index, f"class_{class_index}")
+            results[f"AP/{class_name}"] = float(AP[class_index, 0])
+
+        return results   
+
+    def _compute_ap_for_class(self, predictions: list[dict], ground_truths: dict[str, ClassGroundTruth], num_positives: int, iou_threshold: float):
+
+        detected = {
+            image_id: np.zeros(len(class_gt.boxes), dtype = np.float32) for image_id, class_gt in ground_truths.items()
+        }
+
+        num_preds = len(predictions)
+
+        TP = np.zeros(num_preds, dtype = np.float32)
+        FP = np.zeros(num_preds, dtype = np.float32)
+
+        for index, prediction in enumerate(predictions):
+            image_id, box = prediction['image_id'], prediction['box']
+
+            if image_id not in ground_truths:
+                # If not predicted then its a false positive
+                FP[index] = 1.0
+                continue
+
+            ground_truth_boxes = ground_truths[image_id].boxes
+            detection_flags = detected[image_id]
+
+            if len(ground_truth_boxes) == 0:
+                FP[index] = 1.0
+                continue
+
+            ious = _box_iou_xyxy(box, ground_truth_boxes)
+            best_index = int(np.argmax(ious))
+            best_iou = ious[best_index]
+
+            # Need to check if the IoU is more than threshold
+            if best_iou >= iou_threshold and not detection_flags[best_index]:
+                TP[index] = 1.0
+                detection_flags[best_index] = True
             else:
-                precisions_interp[i] = 0.0
+                FP[index] = 1.0
 
-        return float(np.mean(precisions_interp))
-  
-class MetricsManager:
-    def __init__(self, metrics:list[BaseMetric], prefix: str | None = None):
-        self.metrics = metrics
-        self.prefix = prefix or ""
+        TP_cumsum = np.cumsum(TP)
+        FP_cumsum = np.cumsum(FP)
 
-    def update(self, pred: dict[str,Any], ground_truth: dict[str,Any]):
-        for metric in self.metrics:
-            metric.update(pred,ground_truth)
+        recall = TP_cumsum / num_positives
+        precision = TP_cumsum/ np.maximum(TP_cumsum + FP_cumsum, 1e-6)
+
+        if self.style == "coco":
+            return self._ap_101_point(recall, precision)
+        else:
+            return self._ap_voc(recall,precision)
 
     def compute(self):
-        combined: dict[str,float] = {}
-        for metric in self.metrics:
-            stat = metric.compute()
-            for key,value in stat.items():
-                k = f"{self.prefix}{metric.name}/{key}"
-                combined[k] = value
-        return combined
-        
+        if not self._ground_truths:
+            return {f"mAP@{thresh:.2f}": 0.0 for thresh in self.iou_thresholds}
+
+        # Calculating the ground truths by class based
+        ground_truth_by_class = self._organize_ground_truths()
+
+        num_positives = self._count_positives(ground_truth_by_class)
+
+        # Organizing the prediction scores
+        preds_by_class = self._organize_predictions()
+
+        AP = np.zeros((self.num_classes, len(self.iou_thresholds)), dtype = np.float32)
+
+        for class_index in range(1, self.num_classes):
+            if num_positives[class_index] == 0:
+                continue
+                
+            class_predictions = preds_by_class.get(class_index, [])
+            if not class_predictions:
+                continue
+
+            class_gt = ground_truth_by_class.get(class_index, {})
+
+            for iou_index, iou_threshold in enumerate(self.iou_thresholds):
+                ap = self._compute_ap_for_class(predictions = class_predictions, ground_truths = class_gt, num_positives = num_positives[class_index], iou_threshold = iou_threshold)
+                AP[class_index,iou_index] = ap
+
+        return self._format_results(AP, num_positives)
+  
+class MetricsCollection:
+    def __init__(self, metrics: dict[str, MeanAveragePrecision]):
+        self.metrics = metrics
+
+    def update(self, predictions: list[dict], ground_truths: list[dict]):
+        for metric in self.metrics.values():
+            metric.update(predictions, ground_truths)
+
+    def compute(self):
+        results = {}
+        for name, metric in self.metrics.items():
+            for key, value in metric.compute().items():
+                results[f"{name}/{key}"] = value
+        return results
+
     def reset(self):
-        for metric in self.metrics:
-            metric.reset()
+        for metric in self.metrics.values():
+            metric.reset() 
             
-def build_metrics_config(config: dict):
+def convert_batch_images_to_metric_format(pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, gt_boxes: tf.Tensor, gt_labels: tf.Tensor, gt_mask: tf.Tensor, image_ids: tf.Tensor):
+    predictions = []
+    ground_truths = []
 
-    eval_cfg = config["eval"]
-    metric_cfg = eval_cfg["metrics"]
-    num_classes = config["model"]["num_classes"]
+    batch_size = tf.shape(pred_boxes)[0].numpy()
+
+    for index in range(batch_size):
+        image_id = image_ids[index].numpy()
+
+        if isinstance(image_id, bytes):
+            image_id = image_id.decode("utf-8")
+
+
+        predictions.append({"image_id": image_id, "boxes": pred_boxes[index].numpy(), "scores": pred_scores[index].numpy(), "labels": pred_labels[index].numpy()})
+
+        valid_mask = gt_mask[index].numpy()
+        ground_truths.append({"image_id": image_id, "boxes": gt_boxes[index].numpy()[valid_mask], "labels": gt_labels[index].numpy()[valid_mask]})
+
+    return predictions, ground_truths 
+
+def build_metrics_from_config(config: dict[str, Any]):
+    num_classes = config['num_classes']
+    metrics_config = config.get("eval", {}).get("metrics", {})
+
+    metrics = {}
     
-    metrics: list[BaseMetric] = []
+    for name, config in metrics_config.items():
+        metric_type = config.get("type", "voc_ap")
+        iou_thresholds = config.get("iou_thresholds", [0.5])
 
-    for metric_name, mc in metric_cfg.items():
-        metric_type = mc.get("type", "voc_ap")
-        if metric_type == "voc_ap":
-            metrics.append(
-                VOCMAP(
-                    iou_thresh=mc.get("iou_thresholds", [0.5]),
-                    num_classes=num_classes,
-                    name=metric_name,  # use key from YAML
-                )
-            )
+        style = "coco" if metric_type == "coco_map" else "voc"
 
-        elif metric_type == "coco_map":
-            metrics.append(
-                COCOMAP(
-                    iou_thresh=mc.get("iou_thresholds",
-                                          [0.5, 0.55, 0.6, 0.65,
-                                           0.7, 0.75, 0.8, 0.85,
-                                           0.9, 0.95]),
-                    num_classes=num_classes,
-                    name=metric_name,
-                )
-            )
+        metrics[name] = MeanAveragePrecision(num_classes = num_classes, iou_thresholds = iou_thresholds, style = style)
 
-        else:
-            raise ValueError(f"Unknown metric type: {metric_type!r} for {metric_name!r}")
-
-    return MetricsManager(metrics=metrics, prefix=f"{eval_cfg['dataset_split']}/")
+    return MetricsCollection(metrics)
 
 def _box_iou_xyxy(box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    """
+    Compute IoU between a single box and an array of boxes.
+    
+    Args:
+        box:   shape (4,)  [x1, y1, x2, y2]
+        boxes: shape (N,4) [x1, y1, x2, y2] for each box
 
+    Returns:
+        ious: shape (N,) IoU between `box` and each of `boxes`
+    """
     box = np.asarray(box, dtype=np.float32)
     boxes = np.asarray(boxes, dtype=np.float32)
 
@@ -487,47 +362,3 @@ def _box_iou_xyxy(box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
     union = np.maximum(union, 1e-6)  # avoid division by zero
 
     return inter / union
-
-
-def convert_predictions_to_metric_format(nmsed_boxes, nmsed_scores, nmsed_classes, image_id, gt_boxes_xyxy, gt_labels, gt_valid_mask):
-    preds = []
-    gt = []
-
-    boxes = nmsed_boxes
-    scores = nmsed_scores
-    labels = nmsed_classes
-
-    gt_boxes = gt_boxes_xyxy
-    gt_labels = gt_labels
-    gt_masks = gt_valid_mask
-
-    image_ids = image_id
-
-    B = tf.shape(boxes)[0]
-
-    for i in range(B):
-        img_id = image_ids[i]
-
-        # Prediction boxes
-        pred_box = boxes[i]
-        pred_scores = scores[i]
-        pred_labels = labels[i]
-
-        preds.append({"image_id": img_id.numpy(),"boxes":   pred_box.numpy(), "scores":  pred_scores.numpy(),"labels":  pred_labels.numpy()})
-
-        # Ground truth box
-        gt_box = gt_boxes[i]
-        gt_label = gt_labels[i]
-        gt_mask = gt_masks[i]
-
-        gt_box = tf.boolean_mask(gt_box,gt_mask)
-        gt_label = tf.boolean_mask(gt_labels,gt_mask)
-
-        gt.append({"image_id": img_id.numpy(), "boxes":   gt_box.numpy(), "labels":  gt_label.numpy()})
-
-
-    return preds, gt
-        
-    
-
-    

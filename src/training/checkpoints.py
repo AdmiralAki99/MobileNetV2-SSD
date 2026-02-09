@@ -1,8 +1,8 @@
 import tensorflow as tf
 from typing import Any, Optional
 from pathlib import Path
-import hashlib
-import json
+from mobilenetv2ssd.core.fingerprint import Fingerprint
+from datetime import datetime, timezone
 
 class CheckpointManager:
     def __init__(self, checkpoint_config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, ema: Optional[Any], is_main_node: bool = True):
@@ -46,6 +46,9 @@ class CheckpointManager:
             'best_epoch': self._best_epoch_var,
             'best_metric': self._best_metric_var
         }
+        
+        # Adding optimizers to the checkpoint
+        checkpoint_dict[f'optimizer'] = self._optimizer
 
         if self._ema is not None:
             checkpoint_dict['ema'] = self._ema
@@ -67,6 +70,11 @@ class CheckpointManager:
             self._best_directory.mkdir(parents = True, exist_ok = True)
             self._best_manager = tf.train.CheckpointManager(checkpoint = self._checkpoint, directory = str(self._best_directory), max_to_keep = 1)
         
+    def build_optimizer(self, var_group: list[tf.Variable]):
+        # Need to build the singular optimizer 
+        if isinstance(self._optimizer, tf.keras.optimizers.Optimizer):
+            self._optimizer.build(var_group)
+    
     def restore_latest(self):
         # Accessing the last manager and its parts
         latest_path = self._last_manager.latest_checkpoint
@@ -159,6 +167,27 @@ class CheckpointManager:
             return {'is_best': True, 'path': best_path}
 
         return {'is_best': False, 'path': None}
+    
+    def _normalize_optimizers(self, optimizer: tf.keras.optimizers.Optimizer | dict[str, tf.keras.optimizers.Optimizer]):
+        if isinstance(optimizer, tf.keras.optimizers.Optimizer):
+            return {'main': optimizer}
+        
+        # There are multiple optimizers present
+        if isinstance(optimizer, dict):
+            if not optimizer:
+                raise ValueError("The optimizer dictionary is empty")
+            
+            for key, opt in optimizer.items():
+                # Checking if the instance is correct
+                if not isinstance(key, str):
+                    raise ValueError("The optimizer dictionary keys must be strings")
+                
+                if not isinstance(opt, tf.keras.optimizers.Optimizer):
+                    raise TypeError(f"optimizer['{key}'] is not a tf.keras.optimizers.Optimizer")
+                
+            return dict(optimizer)
+        
+        raise TypeError("The optimizer must be either a tf.keras.optimizers.Optimizer or a dictionary of them")
 
     def _compare_metrics(self, metric: float):
 
@@ -199,38 +228,31 @@ class CheckpointManager:
 
         return False
     
-def _create_checkpoint_directory_fingerprint(config: dict[str,Any]):
-    model_config = config['model']
-    dataset_config = config['data']
-    train_config = config['train']
-
-    fingerprint_config = {
-        'model_backbone': model_config.get('backbone',''),
-        'num_classes': model_config.get('num_classes',0),
-        'priors': model_config.get('priors',{}),
-        'dataset_name': dataset_config.get('dataset_name', ''),
-        'dataset_augmentation': dataset_config.get('augment', {}),
-        'dataset_normalization': dataset_config.get('normalization', {}),
-        'training_batch_size': train_config.get('batch_size', 0),
-        'training_epochs': train_config.get('epochs', 0),
-        'training_optimizer_name': train_config['optimizer'].get('name', ''),
-        'training_optimizer_lr': train_config['optimizer'].get('lr', 0.0),
-        'training_optimizer_weight_decay': train_config['optimizer'].get('weight_decay', 0.0),
-        'training_scheduler_params':train_config.get('scheduler',{})
-    }
-
-    config_json = json.dumps(fingerprint_config,sort_keys = True, separators=(",",":"))
-    hash_object = hashlib.sha256(config_json.encode('utf-8'))
-    hex_digest = hash_object.hexdigest()[:10]
-
-    file_slug = f"{model_config['name']}_{dataset_config['dataset_name']}_img{dataset_config['input_size'][0]}_bs{fingerprint_config['training_batch_size']}_lr{fingerprint_config['training_optimizer_lr']:.2e}_{train_config['scheduler']['name']}"
-    file_name = f"{file_slug}_{hex_digest}"
-
-    root_dir =  config['checkpoint']['dir']
-    run_dir = Path(root_dir) / file_name
+def _create_checkpoint_directory_fingerprint(config: dict[str,Any], fingerprint: Fingerprint = None, job_dir: Path | str = None):
+    
+    experiment_name = config.get("experiment", {}).get("id", "default_experiment")
+    fingerprint_str = str(fingerprint.short) if fingerprint else "no_fingerprint"
+    name_format = config.get("run", {}).get('name_format', "{experiment_id}_{fingerprint}")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    name_format = name_format.replace("{experiment_id}", experiment_name)
+    name_format = name_format.replace("{fingerprint}", fingerprint_str)
+    
+    job_name = name_format
+    run_dir = config.get("run", {}).get("root", "runs")
+    log_dir = config.get("run", {}).get("subdirs", {}).get('logs', 'logs')
+    checkpoint_dir = config.get("run", {}).get("subdirs", {}).get('checkpoints', 'checkpoints')
+    
+    run_dir = Path(run_dir)
+    if job_dir is None:
+        checkpoint_dir = run_dir / job_name / log_dir / timestamp / checkpoint_dir
+    else:
+        if isinstance(job_dir, str):
+            job_dir = Path(job_dir)
+            
+        checkpoint_dir = Path(job_dir) / checkpoint_dir
     
     return {
-        'dir': str(run_dir),
+        'dir': str(checkpoint_dir),
         'keep_last_k': config['checkpoint'].get('keep_last_k', 1),
         'save_every_steps': config['checkpoint'].get('save_every_steps', 200),
         'save_every_epochs': config['checkpoint'].get('save_every_epochs', 1),
@@ -240,10 +262,10 @@ def _create_checkpoint_directory_fingerprint(config: dict[str,Any]):
         'mode': config['checkpoint'].get('mode', 'max')
     }
 
-def build_checkpoint_manager(config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer, ema: Optional[Any], is_main_node: bool =True):
+def build_checkpoint_manager(config: dict[str,Any], model: tf.keras.Model, optimizer: tf.keras.optimizers.Optimizer | dict[str, tf.keras.optimizers.Optimizer], ema: Optional[Any], is_main_node: bool =True, fingerprint: Fingerprint= None, log_dir: Path | None = None):
     
-    checkpoint_config = _create_checkpoint_directory_fingerprint(config)
+    checkpoint_config = _create_checkpoint_directory_fingerprint(config, fingerprint= None if fingerprint is None else fingerprint, job_dir= log_dir)
 
-    checkpoint_manager = CheckpointManager(checkpoint_config, model, optimizer, ema= ema, is_main_node= is_main_node)
+    checkpoint_manager = CheckpointManager(checkpoint_config, model, optimizer=optimizer, ema= ema, is_main_node= is_main_node)
 
     return checkpoint_manager

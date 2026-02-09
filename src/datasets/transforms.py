@@ -36,10 +36,10 @@ class NormalizeBoundingBoxes:
 
     def __call__(self, image, target):
         # Scale the Boxes
-        if 'resize_info' in target:
-            height, width = tf.unstack(target['resize_info'])
-        else:
-            height, width = target['orig_size']
+        image_shape = tf.shape(image)
+        
+        height = image_shape[0]
+        width = image_shape[1]
             
         x1, y1, x2, y2 = tf.split(target['boxes'], num_or_size_splits = 4, axis = -1)
 
@@ -52,7 +52,7 @@ class NormalizeBoundingBoxes:
         target['boxes'] = boxes
             
         return image, target
-
+    
 class Compose:
     def __init__(self, transforms: list[Any]):
         self._transforms = transforms
@@ -332,21 +332,19 @@ def build_preprocess_pipeline(config: dict[str, Any]):
     preprocess_config = {
         'standardize_pipeline': preprocesss_opts.get('standardize_pipeline', ['to_float32', 'scale_01']),
         'pipeline': preprocesss_opts.get('pipeline', ['resize', 'sanitize_boxes','normalize']),
+        'output_box_norm': preprocesss_opts.get('output_box_norm', False),
         'params': {
             'resize': {
-                'enabled': preprocess_params.get('resize', {}).get('enabled', False),
-                'size': preprocess_params.get('resize', {}).get('size', [224, 224]),
+                'size': preprocess_params.get('resize', {}).get('size', config['input_size']),
                 'mode': preprocess_params.get('resize', {}).get('mode', 'stretch'),
                 'interp': preprocess_params.get('resize', {}).get('interp', 'bilinear'),
             },
             'sanitize_boxes': {
-                'enabled': preprocess_params.get('sanitize_boxes', {}).get('enabled', False),
                 'clip': preprocess_params.get('sanitize_boxes', {}).get('clip', False),
                 'min_size': preprocess_params.get('sanitize_boxes', {}).get('min_size', 1),
                 'min_size_mode': preprocess_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
             },
             'normalize': {
-                'enabled': preprocess_params.get('normalize', {}).get('enabled', False),
                 'mean': preprocess_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
                 'std': preprocess_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
             }
@@ -400,24 +398,13 @@ def build_train_augmentation_config(config: dict[str, Any]):
                 'mode': augment_params.get('resize', {}).get('mode', 'stretch'),
                 'interp': augment_params.get('resize', {}).get('interp', 'bilinear'),
             },
-            'sanitize_boxes': {
-                'enabled': augment_params.get('sanitize_boxes', {}).get('enabled', False),
-                'clip': augment_params.get('sanitize_boxes', {}).get('clip', False),
-                'min_size': augment_params.get('sanitize_boxes', {}).get('min_size', 1),
-                'min_size_mode': augment_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
-            },
-            'normalize': {
-                'enabled': augment_params.get('normalize', {}).get('enabled', False),
-                'mean': augment_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
-                'std': augment_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
-            }
         }
     }
 
     return augment_config
 
 def build_validation_augmentation_config(config: dict[str, Any]):
-    validation_opts = config['data'].get('val', {}).get('preprocess',{})
+    validation_opts = config['data'].get('preprocess',{})
     validation_params = validation_opts.get('params', {})
 
     validation_config = {
@@ -426,19 +413,16 @@ def build_validation_augmentation_config(config: dict[str, Any]):
         'output_box_norm': validation_opts.get('output_box_norm', False),
         'params': {
             'resize': {
-                'enabled': validation_params.get('resize', {}).get('enabled', False),
-                'size': validation_params.get('resize', {}).get('size', [300, 300]),
+                'size': validation_params.get('resize', {}).get('size', config['input_size']),
                 'mode': validation_params.get('resize', {}).get('mode', 'stretch'),
                 'interp': validation_params.get('resize', {}).get('interp', 'bilinear'),
             },
             'sanitize_boxes': {
-                'enabled': validation_params.get('sanitize_boxes', {}).get('enabled', False),
                 'clip': validation_params.get('sanitize_boxes', {}).get('clip', False),
                 'min_size': validation_params.get('sanitize_boxes', {}).get('min_size', 1),
                 'min_size_mode': validation_params.get('sanitize_boxes', {}).get('min_size_mode', 'pixels'),
             },
             'normalize': {
-                'enabled': validation_params.get('normalize', {}).get('enabled', False),
                 'mean': validation_params.get('normalize', {}).get('mean', [0.485, 0.456, 0.406]),
                 'std': validation_params.get('normalize', {}).get('std', [0.229, 0.224, 0.225]),
             }
@@ -467,8 +451,6 @@ def build_validation_transforms(config: dict[str, Any]):
     
     # Iterating over the augmentation transforms
     for key in augment_config['pipeline']:
-        if not augment_config['params'][key]['enabled']:
-            continue
 
         # Parse the config based on the type
         match key:
@@ -506,6 +488,9 @@ def build_train_transforms(config: dict[str, Any]):
             case 'to_float32':
                 float_transform = ToFloat32()
                 transform_list.append(float_transform)
+            case 'sanitize_boxes':
+                min_size = preprocess_config['params']['sanitize_boxes']['min_size']
+                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
             case 'scale_01':
                 scale = Scale01()
                 transform_list.append(scale)
@@ -542,18 +527,13 @@ def build_train_transforms(config: dict[str, Any]):
 
     # Last Part of the pipeline
     for key in preprocess_config['pipeline']:
-        if not preprocess_config['params'][key]['enabled']:
-            continue
-
+        
         # Parse the config based on the type
         match key:
             case 'resize':
                 target_size = preprocess_config['params'][key]['size']
                 mode = preprocess_config['params'][key]['mode']
                 transform_list.append(Resize(size = tuple(target_size), mode = mode))
-            case 'sanitize_boxes':
-                min_size = preprocess_config['params'][key]['min_size']
-                transform_list.append(ClipAndFilterBoxes(min_size = min_size))
             case 'normalize':
                 mean = preprocess_config['params'][key]['mean']
                 std = preprocess_config['params'][key]['std']
@@ -563,7 +543,7 @@ def build_train_transforms(config: dict[str, Any]):
 
 
     # Last part to check for normalization
-    if augment_config['output_box_norm']:
+    if preprocess_config['output_box_norm']:
         # Normalize the boxes
         normal_bboxes = NormalizeBoundingBoxes()
         transform_list.append(normal_bboxes)

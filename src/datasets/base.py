@@ -1,3 +1,4 @@
+from unittest import case
 import numpy as np
 from typing import Any, Iterator
 from dataclasses import dataclass
@@ -180,4 +181,19 @@ class BaseDetectionDataset(ABC):
             "avg_boxes_per_image": total_boxes / len(self) if len(self) > 0 else 0,
             "class_distribution": class_counts,
         }
+        
+        
+# Creating a function to create the dataset based on the config
+def create_dataset_from_config(config: dict[str, Any], split: str):
+    # Need to check what type of dataset is needed based on the config
+    # First checing for the dataset name
+    dataset_name = config['data']['dataset_name']
+    match dataset_name:
+        case "voc":
+            # Creating the VOC dataset
+            from datasets.voc import VOCDataset
+            return VOCDataset(root = config['data']['root'], split= split, classes_file= config['data']['classes_file'], use_difficult= config['data']['use_difficult'])
+        
+        case _:
+            raise ValueError(f"Unsupported dataset: {dataset_name}")
         

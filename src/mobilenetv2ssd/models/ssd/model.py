@@ -9,6 +9,10 @@ class SSD(tf.keras.Model):
     def __init__(self, backbone_type: str, name: str, feature_maps: list[str], number_of_classes: int, number_of_anchors_per_layer: list[int], input_shape: tuple[int,int,int], loc_head_configuration: dict[str, Any],cls_head_configuration: dict[str, Any],extra_levels: list[dict[str,Any]], extra_base: str | None, alpha: float = 1.0 ,**kwargs):
         super().__init__(name=name, **kwargs)
         
+        self.backbone_type = backbone_type
+        self.name = name
+        self.input_shape = input_shape
+        
         self.feature_maps = feature_maps
         self.backbone = build_backbone(input_shape = input_shape,alpha = alpha, name = backbone_type)
         

@@ -173,10 +173,14 @@ def decode_and_nms(predicted_offsets: tf.Tensor, predicted_logits: tf.Tensor, pr
     if should_force_fp32("nms",precision_config):
         boxes_xyxy = tf.cast(boxes_xyxy, tf.float32)
         scores = tf.cast(scores, tf.float32)
+        
+    # Converting nms_boxes from xyxy to yxyx
+    x_min,y_min,x_max,y_max = tf.split(boxes_xyxy,num_or_size_splits = 4, axis=-1)
+    boxes_yxyx = tf.concat([y_min,x_min,y_max,x_max],axis=-1)
 
     # Preparing the inputs for NMS outputs
-    nms_boxes, nms_scores = _prepare_nms_inputs(boxes_xyxy, scores)
-
+    nms_boxes, nms_scores = _prepare_nms_inputs(boxes_yxyx, scores)
+    
     # Run batched NMS
     nmsed_boxes,nmsed_scores, nmsed_classes, valid_detections = _run_batched_nms(nms_boxes,nms_scores,iou_thresh, scores_thresh, top_k, max_detections)
 

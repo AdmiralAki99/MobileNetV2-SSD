@@ -2,10 +2,11 @@ import tensorflow as tf
 import hashlib, json
 from typing import Any
 
+from mobilenetv2ssd.core.fingerprint import Fingerprinter
 from mobilenetv2ssd.models.ssd.ops.anchor_ops_tf import build_priors, build_priors_batched
 
 def _extract_information_from_model_config(model_config : dict[str, Any]):
-    config = model_config['model']['priors']
+    config = model_config['priors']
     prior_config = {
         # Big prior hyperparameters
         "image_size": config['image_size'],
@@ -34,8 +35,7 @@ def _extract_information_from_model_config(model_config : dict[str, Any]):
     return prior_config
 
 def _compute_prior_config_fingerprint(config):
-    serialized = json.dumps(config, sort_keys=True).encode()
-    return hashlib.md5(serialized).hexdigest()
+    return Fingerprinter().fingerprint(config).hex
 
 def _validate_prior_config(config):
     # Checking if the format of the config is correct

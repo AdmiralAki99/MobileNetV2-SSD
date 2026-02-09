@@ -92,7 +92,7 @@ class LearningRateSchedulerFactory:
         
     @staticmethod
     def _create_scheduler_config_from_main_config(config: dict[str,Any]):
-        scheduler = config['train'].get('scheduler')
+        scheduler = config.get('scheduler',{})
         warmup_config = scheduler.get('warmup', {})
         step_config = scheduler.get('step', {})
         multistep_config = scheduler.get('multistep', {})

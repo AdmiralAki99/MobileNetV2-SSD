@@ -7,18 +7,16 @@ from mobilenetv2ssd.models.ssd.ops.encode_ops_tf import encode_boxes_core, encod
 from mobilenetv2ssd.core.precision_config import PrecisionConfig
 
 def _extract_information_from_train_config(config : dict[str, Any]):
-    model_config = config['model']
-    train_config = config['train']
     target_config = {
-        "variances": model_config['priors'].get("variances",[0.1,0.2]),
-        'image_size': model_config.get("input_size",[224,224]),
-        'iou_threshold_pos': model_config['matcher'].get("iou_threshold_pos",0.5),
-        'iou_threshold_neg': model_config['matcher'].get("iou_threshold_neg",0.4),
-        'allow_low_quality_matches': model_config['matcher'].get("allow_low_quality_matches",True), # Bipartite flag
-        'center_in_gt': model_config['matcher'].get("center_in_gt",False),
-        'neg_pos_ratio': train_config['sampler'].get('neg_pos_ratio',3.0),
-        'min_neg': train_config['sampler'].get('min_neg',0),
-        'max_neg': train_config['sampler'].get('max_neg',None),
+        "variances": config['priors'].get("variances",[0.1,0.2]),
+        'image_size': config.get("input_size",[224,224]),
+        'iou_threshold_pos': config['matcher'].get("iou_threshold_pos",0.5),
+        'iou_threshold_neg': config['matcher'].get("iou_threshold_neg",0.4),
+        'allow_low_quality_matches': config['matcher'].get("allow_low_quality_matches",True), # Bipartite flag
+        'center_in_gt': config['matcher'].get("center_in_gt",False),
+        'neg_pos_ratio': config['sampler'].get('neg_pos_ratio',3.0),
+        'min_neg': config['sampler'].get('min_neg',0),
+        'max_neg': config['sampler'].get('max_neg',None),
         'diagnostics': True
     }
 
