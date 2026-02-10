@@ -3,6 +3,7 @@ from mobilenetv2ssd.core.logger import Logger
 from mobilenetv2ssd.core.fingerprint import Fingerprint
 from typing import Any
 from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
 import json
 
 from mobilenetv2ssd.models.ssd.ops.box_ops_tf import iou_matrix_core
@@ -362,8 +363,6 @@ def initialize_run_metadata(config: dict[str, Any], args: dict[str, Any], finger
 
 # --- INFERENCE UTILITIES --- #
 def draw_bounding_boxes(image_shape: tf.Tensor, image_id: tf.Tensor, boxes: tf.Tensor, labels: tf.Tensor, pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, dataset_name: str, dataset_root: str, labels_map: dict[str, int]| None = None):
-    from PIL import Image, ImageDraw, ImageFont
-    from pathlib import Path
     
     if dataset_name == "voc":
         dataset_root = Path(dataset_root)
