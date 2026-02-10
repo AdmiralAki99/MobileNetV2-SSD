@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Literal
 from dataclasses import dataclass, field
 from mobilenetv2ssd.core.fingerprint import Fingerprint
+from training.ema import EMA
 import json
 
 import tensorflow as tf
@@ -489,6 +490,37 @@ class Logger:
         
         return self._tensorboard_process
     
+    def save_model_weights(self, model: tf.keras.Model, training_result: dict, config: dict[str, Any], fingerprint: Fingerprint | None = None, ema: EMA = None):
+        # Creating the weights directory
+        
+        weights_dir = self.job_dir / "weights"
+        weights_dir.mkdir(exist_ok= True)
+        
+        # Save EMA weights if they exist
+        if ema is not None and ema.enabled and ema.eval_use_ema:
+            ema.apply_to(model= model)
+            self.checkpoint(f"Applied EMA shadow weights to model.")
+            
+        weights_path = weights_dir / "final_weights.weights.h5"
+        model.save_weights(str(weights_path))
+        self.checkpoint(f"Saved model final weights to {weights_path}")
+        
+        summary = {
+            "job_name": self.job_name,
+            "best_metric": training_result.get("best_metric"),
+            "primary_metric": training_result.get("primary_metric"),
+            "global_step": training_result.get("global_step"),
+            "weights_path": str(weights_path),
+            "fingerprint": str(fingerprint.short) if fingerprint else None,
+            "config": config,
+        }
+        
+        summary_path = self.job_dir / "training_summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+            
+        self.success(f"Saved training summary to {summary_path}")
+        
     def stop_tensorboard(self):
 
         if hasattr(self, '_tensorboard_process') and self._tensorboard_process is not None:

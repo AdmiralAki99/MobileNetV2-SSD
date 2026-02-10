@@ -14,7 +14,7 @@ from mobilenetv2ssd.models.ssd.orchestration.loss_orch import calculate_final_lo
 from mobilenetv2ssd.models.ssd.orchestration.post_process_orch import build_decoded_boxes
 from mobilenetv2ssd.models.factory import build_ssd_model
 
-from mobilenetv2ssd.core.utils import ssd_get_prior_stats, calculate_model_prediction_health, calculate_nms_health_scores, calculate_gt_health_scores, calculate_pred_health_metrics, verify_pred_boxes_sanity, gt_box_range, calculate_iou_sanity_top1, prediction_box_bad_frac, ground_truth_box_bad_frac
+from mobilenetv2ssd.core.utils import ssd_get_prior_stats, calculate_model_prediction_health, calculate_nms_health_scores, calculate_gt_health_scores, calculate_pred_health_metrics, verify_pred_boxes_sanity, gt_box_range, calculate_iou_sanity_top1, prediction_box_bad_frac, ground_truth_box_bad_frac, inference_function
 
 from training.amp import AMPContext
 from training.ema import EMA
@@ -273,6 +273,8 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
     # Restoring the EMA model variables
     
     ema.restore(model)
+    
+    inference_function(config= config, dataset_batch= batch, model_prediction= evaluation_output, logger= logger, global_step= 300)
     
     return metrics_manager.compute()    
 

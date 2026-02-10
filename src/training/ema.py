@@ -28,6 +28,14 @@ class EMA(tf.Module):
         self._ema_vars = [tf.Variable(tf.convert_to_tensor(variable), dtype = variable.dtype, trainable = False, name = f"{variable.name.replace(':', '_')}_ema") for variable in self._model_vars]
 
         self._backup = None
+    
+    @property    
+    def eval_use_ema(self):
+        return self._eval_use_ema
+    
+    @property
+    def enabled(self):
+        return self._enabled
 
     def reset(self):
         # The function needs to reset to the models current weights
