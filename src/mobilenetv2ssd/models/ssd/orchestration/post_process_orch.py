@@ -11,15 +11,15 @@ def _read_eval_config(config: dict[str, Any]):
     decode_config = eval_opts['decode']
     eval_config = {
         
-        'iou_threshold': nms_config.get('iou_threshold', 0.5),
-        'score_threshold': nms_config.get('score_threshold', 0.05),
-        'max_detections_per_class': nms_config.get('max_detections_per_class', 50),
-        'max_detections_per_image': nms_config.get('max_detections_per_image', 100),
-        'per_class_top_k': nms_config.get('per_class_top_k', 100),
-        'class_file': decode_config.get('root', None),
-        'variances': tf.constant(list(decode_config.get('variances', [0.1,0.2])), dtype = tf.float32),
-        'use_sigmoid': decode_config.get('use_sigmoid', False),
-        'input_size': {'image_height': eval_opts.get('input', 0)[0],'image_width': eval_opts.get('input', 0)[1]}
+        'iou_threshold': config.get('eval',{}).get('nms',{}).get('iou_threshold', 0.5),
+        'score_threshold': config.get('eval',{}).get('nms',{}).get('score_threshold', 0.05),
+        'max_detections_per_class': config.get('eval',{}).get('nms',{}).get('max_detections_per_class', 50),
+        'max_detections_per_image': config.get('eval',{}).get('nms',{}).get('max_detections_per_image', 100),
+        'per_class_top_k': config.get('eval',{}).get('nms',{}).get('per_class_top_k', 100),
+        'class_file': config.get('data',{}).get('classes_file', None),
+        'variances': tf.constant(list(config.get('eval',{}).get('decode',{}).get('variances', [0.1,0.2])), dtype = tf.float32),
+        'use_sigmoid': config.get('eval',{}).get('decode',{}).get('use_sigmoid', False),
+        'input_size': {'image_height': config.get('eval',{}).get('input', config['input_size'])[0],'image_width': config.get('eval',{}).get('input',  config['input_size'])[1]}
     }
     
     return eval_config

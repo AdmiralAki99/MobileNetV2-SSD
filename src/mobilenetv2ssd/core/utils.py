@@ -358,4 +358,80 @@ def initialize_run_metadata(config: dict[str, Any], args: dict[str, Any], finger
     
     with open(args_json_path, 'w') as f:
         json.dump(args_json, f, indent=4)
+
+
+# --- INFERENCE UTILITIES --- #
+def draw_bounding_boxes(image_shape: tf.Tensor, image_id: tf.Tensor, boxes: tf.Tensor, labels: tf.Tensor, pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, dataset_name: str, dataset_root: str, labels_map: dict[str, int]| None = None):
+    from PIL import Image, ImageDraw, ImageFont
+    from pathlib import Path
     
+    if dataset_name == "voc":
+        dataset_root = Path(dataset_root)
+        dataset_root = dataset_root / "JPEGImages"
+        image_file = dataset_root / f"{image_id.numpy().decode()}.jpg"
+    else:
+        raise ValueError("Wrong Dataset Type")
+
+    original_image = Image.open(image_file)
+    H, W = image_shape[0], image_shape[1]
+    original_image = original_image.resize((W,H))
+    draw = ImageDraw.Draw(original_image)
+
+    def label_color(l):
+        return ((37 * l + 17) % 256, (57 * l + 101) % 256, (83 * l + 59) % 256)
+
+    # Draw ground truth boxes
+    for i in range(boxes.shape[0]):
+        x1, y1, x2, y2 = boxes[i].numpy()
+        c = label_color(int(labels[i].numpy()))
+        draw.rectangle([x1, y1, x2, y2], outline=c, width=2)
+        draw.text((x1, y1 - 10), f"GT:{labels_map[int(labels[i])]}", fill=c)
+
+    # Draw prediction boxes
+    for i in range(pred_boxes.shape[0]):
+        x1, y1, x2, y2 = pred_boxes[i].numpy()
+        c = label_color(int(pred_labels[i].numpy()))
+        score = float(pred_scores[i].numpy())
+        draw.rectangle([x1, y1, x2, y2], outline=c, width=2)
+        draw.text((x1, y2 + 2), f"P:{labels_map[int(pred_labels[i])]} {score:.2f}", fill=c)
+
+    y_offset = 10
+    unique_labels = set(labels.numpy().tolist()) | set(pred_labels.numpy().tolist())
+    for lid in unique_labels:
+        c = label_color(int(lid))
+        draw.rectangle([5, y_offset, 20, y_offset + 12], fill=c)
+        draw.text((25, y_offset), labels_map[int(lid)], fill=c)
+        y_offset += 16
+
+    result = tf.constant(np.array(original_image), dtype=tf.float32)
+    return result / 255.0
+    
+def inference_function(config: dict[str,Any], dataset_batch: dict[str, Any], model_prediction: dict[str, Any], logger: Logger, global_step: int, top_k_per_image: int = 5):
+    # Taking the first image from the batch
+    gather_index= tf.constant([0], dtype=tf.int32)
+    image= tf.gather(dataset_batch['image'], gather_index)
+    image_id= tf.gather(dataset_batch['image_id'], gather_index)
+    gt_boxes = tf.gather(model_prediction['gt_boxes'], gather_index)
+    gt_mask = tf.gather(dataset_batch['gt_mask'], gather_index)
+    gt_labels = tf.gather(dataset_batch['labels'], gather_index)
+
+    image= tf.squeeze(image, axis= 0)
+    image_id= tf.squeeze(image_id)
+    valid_gt= tf.boolean_mask(gt_boxes, gt_mask)
+    valid_gt_labels= tf.boolean_mask(gt_labels, gt_mask)
+    
+    pred_labels= tf.gather(model_prediction['pred_classes'], gather_index)
+    pred_labels= tf.squeeze(pred_labels, axis= 0)
+    pred_scores = tf.gather(model_prediction['pred_scores'], gather_index)
+    pred_scores= tf.squeeze(pred_scores, axis= 0)
+    pred_boxes = tf.gather(model_prediction['pred_boxes'], gather_index)
+    pred_boxes= tf.squeeze(pred_boxes, axis= 0)
+    
+    # Choosing the labels
+    top_k_scores, top_k_indices = tf.math.top_k(pred_scores, k= top_k_per_image, sorted=True)
+    top_k_boxes= tf.gather(pred_boxes, top_k_indices)
+    top_k_labels= tf.gather(pred_labels, top_k_indices)
+
+    img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= model_prediction['class_labels'])
+    
+    logger.success(f"Logged eval image....{'.'*20}")
