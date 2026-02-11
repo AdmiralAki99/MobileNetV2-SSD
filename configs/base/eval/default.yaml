@@ -1,0 +1,38 @@
+# Evaluation configuration
+
+eval:
+  eval_enabled: true
+  dataset_split: val
+  input: [300, 300]
+
+  decode:
+    variances: [0.1, 0.2]
+    priors_format: cxcywh
+    output_format: xyxy
+    clip_boxes: true
+    boxes_normalized: true
+    use_sigmoid: false
+    classes_file: ${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt
+
+  nms:
+    iou_threshold: 0.7
+    score_threshold: 0.9
+    max_detections_per_class: 50
+    max_detections_per_image: 50
+    per_class_top_k: 100
+
+  metrics:
+    voc_ap_50:
+      type: voc_ap
+      iou_thresholds: [0.5, 0.75]
+      use_07_metric: false
+
+    coco_map:
+      type: coco_map
+      iou_thresholds: [0.5, 0.75]
+      use_07_metric: false
+
+  visualization:
+    enabled: false
+    max_images: 16
+    output_dir: eval_vis

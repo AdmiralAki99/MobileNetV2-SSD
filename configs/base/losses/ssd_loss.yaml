@@ -1,0 +1,32 @@
+# Loss configuration for SSD training
+# Groups classification loss, regression loss, and hard negative mining
+
+loss:
+  # Classification loss
+  classification:
+    type: softmax_ce        # softmax_ce | focal | sigmoid_ce
+    from_logits: true
+    label_smoothing: 0.0
+    
+    # Focal loss params (only used if type: focal)
+    focal_alpha: 0.25
+    focal_gamma: 2.0
+
+  # Box regression loss  
+  regression:
+    type: smooth_l1         # smooth_l1 | l1 | giou | ciou
+    beta: 1.0               # Smooth L1 transition point
+    
+  # Loss weighting
+  weights:
+    classification: 1.0
+    regression: 1.0
+    
+  # Normalization
+  normalization:
+    type: num_pos           # num_pos | batch_size | none
+    epsilon: 1.0e-6
+    min_pos: 1              # Minimum divisor to prevent instability
+    
+  # Reduction across batch
+  reduction: sum            # sum | mean

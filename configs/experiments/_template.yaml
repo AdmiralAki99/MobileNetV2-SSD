@@ -1,0 +1,165 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPERIMENT TEMPLATE
+# Copy this file to create a new experiment: exp001_your_name.yaml
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# METADATA
+# Used by the orchestrator and registry - does NOT affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+experiment:
+  id: exp000                      # REQUIRED: Unique ID (exp001, exp002, ...)
+  name: template_experiment       # Human-readable name
+  description: |
+    Describe what this experiment tests.
+    What hypothesis are you validating?
+  author: your-github-username
+  created: "2025-02-04"
+  tags:
+    - template
+    
+  # Run control
+  enabled: false                  # Set true to allow CI to run this
+  priority: 10                    # Higher = runs first when queued
+  depends_on: []                  # List of exp IDs that must complete first
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# INFRASTRUCTURE
+# Where and how to run - does NOT affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+infrastructure:
+  instance_type: g4dn.xlarge
+  spot: true
+  spot_max_price: 0.50
+  timeout_hours: 24
+  region: us-east-1
+  
+  storage:
+    checkpoint_bucket: s3://your-bucket/checkpoints
+    data_bucket: s3://your-bucket/datasets
+    artifact_bucket: s3://your-bucket/artifacts
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# COMPONENT DEFAULTS
+# Which base configs to inherit - DOES affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+defaults:
+  backbone: base/backbones/mobilenetv2.yaml
+  heads: base/heads/ssd_head.yaml
+  priors: base/priors/ssd_300.yaml
+  loss: base/losses/ssd_loss.yaml
+  sampler: base/samplers/hard_negative.yaml
+  optimizer: base/optimizers/sgd_cosine.yaml
+  augmentation: base/augmentations/ssd_augment.yaml
+  data: data/voc.yaml
+
+overrides:
+# ─────────────────────────────────────────────────────────────────────────────────
+# COMPONENT OVERRIDES
+# Which components to override - DOES affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+
+recipes:
+  optimizer: base/optimizers/adamw_cosine.yaml
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# GLOBAL SETTINGS
+# Shared across components - DOES affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+input_size: [300, 300]
+num_classes: 21
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# OVERRIDES
+# Override any value from defaults - DOES affect training fingerprint
+# Only specify what differs from base configs
+# ─────────────────────────────────────────────────────────────────────────────────
+train:
+  epochs: 50
+  seed: 1337
+  
+  # Mixed precision
+  amp:
+    enabled: true
+    policy: mixed_float16
+    loss_scale: dynamic
+  
+  # Exponential moving average
+  ema:
+    enabled: true
+    decay: 0.999
+    warmup_steps: 1000
+    update_every: 1
+    
+  # Gradient settings
+  gradient:
+    clip_norm: null           # Set to e.g. 10.0 to enable gradient clipping
+    accumulation_steps: 1     # For effective larger batch sizes
+    
+# Override specific backbone settings
+backbone:
+  grad_scale: 0.1             # Lower LR for pretrained backbone
+
+# Override specific optimizer settings  
+optimizer:
+  lr: 0.01
+  
+scheduler:
+  warmup:
+    steps: 500
+
+# Override data settings
+data:
+  train:
+    batch_size: 32
+  val:
+    batch_size: 32
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# EVALUATION
+# NMS and metric settings - partially affects fingerprint (NMS affects metrics)
+# ─────────────────────────────────────────────────────────────────────────────────
+eval:
+  interval_epochs: 1          # Validate every N epochs
+  
+  nms:
+    iou_threshold: 0.5
+    score_threshold: 0.01
+    max_detections_per_class: 100
+    max_detections_per_image: 100
+    
+  metrics:
+    - voc_ap_50
+    - voc_ap_75
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# CHECKPOINTING
+# Does NOT affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+checkpoint:
+  save_every_epochs: 1
+  save_every_steps: null      # Alternative: save every N steps
+  keep_last_k: 3
+  save_best: true
+  monitor: val_map
+  mode: max                   # max | min
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# LOGGING
+# Does NOT affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────
+logging:
+  log_every_steps: 50
+  
+  tensorboard:
+    enabled: true
+    
+  wandb:
+    enabled: false
+    project: ssd-experiments
+    entity: null
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# OVERRIDES
+# Does NOT affect training fingerprint
+# ─────────────────────────────────────────────────────────────────────────────────

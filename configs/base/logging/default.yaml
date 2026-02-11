@@ -1,0 +1,31 @@
+# Logging configuration
+
+run:
+  root: ${RUNS_ROOT:-runs}
+  name_format: "{experiment_id}_{fingerprint}"
+  timestamp_format: "%Y%m%d_%H%M%S"
+  
+  subdirs:
+    checkpoints: checkpoints
+    logs: logs
+    tensorboard: logs/tensorboard
+    artifacts: artifacts
+    workers: workers
+
+logging:
+  level: info
+  log_interval_steps: 1
+  val_interval_epochs: 1
+
+  console:
+    enabled: true
+  file:
+    enabled: true
+  tensorboard:
+    enabled: true
+    
+  wandb:
+    enabled: false
+    project: mobilenetv2-ssd
+    entity: null
+    group: null

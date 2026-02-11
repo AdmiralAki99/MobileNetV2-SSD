@@ -1,0 +1,26 @@
+# AdamW optimizer with cosine annealing and warmup
+
+optimizer:
+  name: adamw
+  lr: 0.001                 # Base learning rate (typically lower than SGD)
+  betas: [0.9, 0.999]
+  epsilon: 1.0e-8
+  weight_decay: 0.01        # AdamW uses higher weight decay
+
+scheduler:
+  name: cosine_warmup
+  
+  base_lr: 0.001
+  min_lr: 0.000001
+  total_steps: 10000
+  
+  warmup:
+    enabled: true
+    mode: linear
+    steps: 1000
+    epochs: null
+    start_factor: 0.01
+    
+  cosine:
+    cycles: 1
+    cycle_decay: 1.0
