@@ -1,0 +1,8 @@
+# Export configuration
+
+export:
+  save_final_checkpoint: true
+  save_best_checkpoint: true
+  export_saved_model: true
+  export_onnx: false
+  export_tflite: false

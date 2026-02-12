@@ -1,0 +1,138 @@
+# PASCAL VOC dataset configuration
+
+data:
+  dataset_name: voc
+  root: ${DATA_ROOT:-datasets}/VOCdevkit/VOC2012
+  use_difficult: false
+
+  train_split: trainval
+  val_split: val
+
+  num_classes: 21
+  classes_file: ${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt
+
+  # Dataloader settings
+  num_workers: 4
+  shuffle_buffer: 1000
+  prefetch_batches: 2
+
+  # Input standardization
+  standardize:
+    boxes_format_in: xyxy_pixels
+    boxes_format_out: xyxy_pixels
+    image_rgb: true
+    to_float32: true
+    scale: "0_1"
+
+  # Preprocessing (both train and val)
+  preprocess:
+
+    standardize_pipeline:
+      - to_float32
+      - sanitize_boxes
+      - scale_01
+
+    pipeline:
+      - resize
+      - normalize
+
+    output_box_norm: true
+
+    params:
+      resize:
+        size: [300, 300]
+        mode: stretch
+        interp: bilinear
+
+      sanitize_boxes:
+        clip: true
+        min_size: 1
+        min_size_mode: pixels
+
+      normalize:
+        mean: [0.485, 0.456, 0.406]
+        std: [0.229, 0.224, 0.225]
+
+  # Train split settings
+  train:
+    batch_size: 3
+
+    padded_shapes:
+      image: [null, null, 3]
+      boxes: [null, 4]
+      labels: [null]
+      image_id: []
+      hash_signature: []
+      path: []
+
+    padding_values:
+      image: 0.0
+      boxes: -1.0
+      labels: 0
+
+    shuffle: false
+    prefetch: false
+    max_boxes: 100
+    repeat: false
+
+    transform:
+      enabled: true
+      output_box_norm: true
+
+      pipeline:
+        - photometric_distort
+        - random_expand
+        - random_iou_crop
+        - random_flip
+
+      params:
+        random_flip:
+          enabled: false
+          prob: 0.5
+          direction: horizontal
+
+        random_iou_crop:
+          enabled: false
+          prob: 1.0
+          min_iou_choices: [0.1, 0.3, 0.5, 0.7, 0.9, null]
+          min_scale: 0.3
+          max_scale: 1.0
+          max_attempts: 50
+          fallback: original
+
+        random_expand:
+          enabled: false
+          prob: 0.5
+          max_ratio: 4.0
+          fill: mean
+          value: [0.485, 0.456, 0.406]
+
+        photometric_distort:
+          enabled: false
+          prob: 0.5
+          brightness: 0.125
+          contrast: [0.5, 1.5]
+          saturation: [0.5, 1.5]
+          hue: 0.05
+          random_order: true
+
+  # Validation split settings
+  val:
+    batch_size: 3
+
+    padded_shapes:
+      image: [null, null, 3]
+      boxes: [null, 4]
+      labels: [null]
+      image_id: []
+      hash_signature: []
+      path: []
+
+    padding_values:
+      image: 0.0
+      boxes: -1.0
+      labels: 0
+
+    shuffle: false
+    prefetch: true
+    max_boxes: 100

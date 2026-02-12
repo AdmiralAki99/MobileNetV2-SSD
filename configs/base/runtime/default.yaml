@@ -1,0 +1,7 @@
+# Runtime configuration
+
+runtime:
+  num_workers: 4
+  prefetch_batches: 2
+  mixed_precision: none
+  deterministic: false

@@ -1,0 +1,12 @@
+# Matcher and sampler configuration
+
+matcher:
+  iou_threshold_pos: 0.5
+  iou_threshold_neg: 0.4
+  allow_low_quality_matches: false
+  center_in_gt: false
+
+sampler:
+  neg_pos_ratio: 3.0
+  min_neg: 0
+  max_neg: null

@@ -1,0 +1,15 @@
+# Backbone configuration for MobileNetV2
+
+backbone:
+  name: mobilenetv2
+  width_mult: 1.0
+  output_layers: [C3, C4, C5]
+  
+  # Pretrained weights
+  pretrained: true
+  weights: imagenet
+  
+  # Training behavior
+  freeze: false
+  freeze_bn: false
+  grad_scale: 0.1

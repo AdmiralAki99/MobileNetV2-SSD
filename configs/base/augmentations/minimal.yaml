@@ -1,0 +1,22 @@
+# Minimal augmentation for fast iteration or debugging
+
+augmentation:
+  enabled: true
+  output_box_format: xyxy_normalized
+
+  pipeline:
+    - random_flip
+
+  photometric_distort:
+    enabled: false
+
+  random_expand:
+    enabled: false
+
+  random_iou_crop:
+    enabled: false
+
+  random_flip:
+    enabled: true
+    prob: 0.5
+    direction: horizontal

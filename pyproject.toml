@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mobilenetv2-ssd"
+version = "0.1.0"
+description = "MobileNetV2-SSD object detection pipeline"
+requires-python = ">=3.10"
+
+dependencies = [
+  "tensorflow==2.17.0",
+  "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-cov"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -m 'not integration and not regression'"
+
+markers = [
+  "unit: fast, deterministic unit tests",
+  "integration: slower tests that touch multiple components",
+  "regression: tests that lock down previously-broken behavior"
+]

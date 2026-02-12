@@ -1,0 +1,35 @@
+# Training configuration
+
+train:
+  seed: 1337
+  device: auto
+  train_split: train
+  epochs: 50
+  batch_size: 3
+  grad_accum_steps: 1
+
+  ema:
+    enabled: true
+    decay: 0.9
+    warmup_steps: 0
+    update_every: 1
+    eval_use_ema: true
+
+  amp:
+    enabled: true
+    policy: mixed_float16
+    loss_scale: dynamic
+    clip_unscaled_grads: true
+    force_fp32:
+      - loss_reduction
+      - box_encode_decode
+      - iou
+      - nms
+
+  targets:
+    filters:
+      min_box_area: 0.0
+      clip_to_image: true
+      drop_invalid: true
+
+  diagnostics: false

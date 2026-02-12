@@ -1,0 +1,31 @@
+# SSD detection head configuration
+
+heads:
+  extra_layers:
+    base_feature: C5
+    levels:
+      - name: P6
+        out_channels: 256
+        stride: 2
+        kernel_size: 3
+      - name: P7
+        out_channels: 256
+        stride: 2
+        kernel_size: 3
+      - name: P8
+        out_channels: 128
+        stride: 2
+        kernel_size: 3
+
+  localization:
+    norm_cfg: batch_norm
+    head_type: conv3x3
+    intermediate_channels: 256
+    squeeze_ratio: 1.0
+
+  classification:
+    norm_cfg: batch_norm
+    head_type: conv3x3
+    intermediate_channels: 256
+    squeeze_ratio: 1.0
+    use_sigmoid: false

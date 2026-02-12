@@ -1,2 +1,19 @@
 # Removing the checkpoint files from notebook directory
-notebooks/.ipynb_checkpoints/*
+/notebooks/.ipynb_checkpoints/*
+/.ipynb_checkpoints/*
+/notebooks/*.jpg
+/*.weights.h5
+/*.csv
+/*.txt
+/docs/flowcharts/*
+/docs/images/*
+/src/models/__pycache__/*
+/src/mobilenetv2ssd/__pycache__/*
+/src/mobilenetv2ssd/models/__pycache__/*
+src/mobilenetv2ssd/models/mobilenet_v2/__pycache__
+src/mobilenetv2ssd/models/ssd/__pycache__
+src/mobilenetv2ssd/models/ssd/ops/__pycache__
+src/mobilenetv2ssd/models/mobilenet_v2/weights/*
+/tests/__pycache__/*
+/src/mobilenetv2_ssd.egg-info/*
+/datasets/*
