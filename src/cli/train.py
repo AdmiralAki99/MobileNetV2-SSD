@@ -4,6 +4,7 @@ import sys
 from typing import Any
 from datetime import datetime, timezone
 import argparse
+import json
 
 from cli.bundle import TrainingBundle
 
@@ -27,6 +28,7 @@ from training.amp import build_amp
 from training.metrics import build_metrics_from_config
 from training.ema import build_ema, EMA
 from training.checkpoints import build_checkpoint_manager
+from training.resume import collect_resumable_runs, select_run_interactive, validate_checkpoint_compatibility
 
 from training.shutdown import ShutdownHandler
 
@@ -85,6 +87,7 @@ def parse_args():
     
     
     args = parser.parse_args()
+        
     
     return {
         'experiment_path': Path(args.experiment_path),
@@ -110,9 +113,6 @@ def initialize_run_settings(args: dict[str, Any]):
     if args['debug']:
         print("Debug mode enabled. Setting up debug settings...")
         
-    if args['resume']:
-        print("Resume mode enabled. Will attempt to resume from the last checkpoint if available.")
-        
     if args['print_config']:
         print("Print config mode enabled. Will print the configuration and exit.")
         # Print the configuration and exit
@@ -127,6 +127,25 @@ def initialize_run_settings(args: dict[str, Any]):
     # Now creating the logger and other settings
     
     config = load_config(experiment_path=experiment_path, config_root=config_root)
+    
+    if args['resume']:
+        runs = collect_resumable_runs(Path(config['run']['root']))
+        if runs:
+            selected = select_run_interactive(runs)
+            if selected is not None:
+                with open(str(selected['experiment_dir'] / "config.json")) as config_file:
+                    saved_config = json.load(config_file)
+                    
+                compatibility_flag, warnings = validate_checkpoint_compatibility(saved_config= saved_config, current_config= config)
+                if not compatibility_flag:
+                    print(f"Error in the restore path config and the current config : {warnings}")
+                    exit(1)
+                args['resume_checkpoint_path'] = selected['ckpt_path']
+            else:
+                print("No selected path found..............")
+        else:
+            print("No resumable runs found. Starting fresh.")
+    
     fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
     
     # Formatting the timestamp for logging and metadata
@@ -164,10 +183,12 @@ def create_datasets(config: dict[str, Any], logger: Logger):
     # Training dataset has to always be created, but validation dataset is optional based on the config
     training_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
     logger.info(f"Created {training_dataset.__class__.__name__} training dataset with {len(training_dataset)} samples {'.'*20}")
+    logger.info(f"Train loop has {int(len(training_dataset) / config['data']['train']['batch_size'])} steps{'.'*20}")
     
     if config['eval']['eval_enabled']:
         validation_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
         logger.info(f"Created {validation_dataset.__class__.__name__} validation dataset with {len(validation_dataset)} samples {'.'*20}")
+        logger.info(f"Eval loop has {int(len(validation_dataset) / config['data']['val']['batch_size'])} steps{'.'*20}")
         
     # Leveraging the tf.data.Dataset API to create the training and validation datasets
     train_dataset = create_training_dataset(config= config, dataset= training_dataset, transform= train_compose)
@@ -298,8 +319,12 @@ def initialize_framework(args: dict[str, Any]):
     
     return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager)
 
-def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler):
-    restore_state= framework_opts.checkpoint_manager.restore_latest()
+def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, resume_ckpt_path: Path | None = None):
+    if resume_ckpt_path:
+        # There is a path that the user passed and needs to restore from
+        restore_state= framework_opts.checkpoint_manager.restore_from_directory(resume_ckpt_path)
+    else:
+        restore_state= framework_opts.checkpoint_manager.restore_latest()
     
     if not restore_state['restored']:
         start_epoch = restore_state['epoch']
@@ -344,6 +369,7 @@ def execute_training():
     handler.register()
     
     framework_opts = None
+    args = None
     exit_code = 0
     
     try:
@@ -352,8 +378,8 @@ def execute_training():
         framework_opts = initialize_framework(args= args)
     
         framework_opts.logger.success(f"Completed the initialization stage for the framework...{'.'*20}")
-    
-        train(framework_opts= framework_opts, shutdown_handler= handler)
+        resume_path = args.get('resume_checkpoint_path', None)
+        train(framework_opts= framework_opts, shutdown_handler= handler, resume_ckpt_path= resume_path)
     except GracefulShutdownException as err:
         exit_code= 128 + err.signal_number
     except Exception as err:
@@ -374,7 +400,6 @@ def execute_training():
 if __name__ == "__main__":
     
    sys.exit(execute_training())
-        
     
     
          

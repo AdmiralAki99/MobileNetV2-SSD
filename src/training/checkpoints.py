@@ -131,6 +131,21 @@ class CheckpointManager:
 
         return {'restored': True, 'epoch': epoch, 'global_step': global_step, 'best_metric': best_metric , 'best_epoch': best_epoch}
 
+    def restore_from_directory(self, external_checkpoint_path: Path):
+        # Need to check if the path exists
+        if not external_checkpoint_path.exists():
+            return {'restored': False, 'epoch': 0, 'global_step': 0, 'best_metric': float("-inf") if self._mode == "max" else float("inf") , 'best_epoch': -1}
+    
+        # The path exists and now can be parsed
+        self._checkpoint.restore(str(external_checkpoint_path)).expect_partial()
+        
+        restored_epoch = int(self._epoch_var.numpy())
+        restored_global_step = int(self._global_step_var.numpy())
+        restored_best_metric = float(self._best_metric_var.numpy())
+        restored_best_epoch = float(self._best_epoch_var.numpy())
+        
+        return {'restored': True, 'epoch': restored_epoch, 'global_step': restored_global_step, 'best_metric': restored_best_metric , 'best_epoch': restored_best_epoch}
+    
     def save_last(self, epoch: int, global_step: int):
 
         if not self._is_main:
