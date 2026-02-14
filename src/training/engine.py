@@ -22,6 +22,8 @@ from training.ema import EMA
 from training.metrics import convert_batch_images_to_metric_format, MetricsCollection
 from training.shutdown import ShutdownHandler
 
+from infrastructure.s3_sync import S3SyncClient
+
 def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
     
     # First get the batch elements from the dataset
@@ -285,7 +287,7 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
     
     return metrics_manager.compute()    
 
-def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None):
+def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None, s3_sync: S3SyncClient = None):
     # Initialize overarching variables
     # 1. Epoch, 2. eval_every, 3. log_every, 4. heavy_log_every, 5. save_every, 6. save_best, 7. best_metric, 8. global_step
     epochs = max_epochs if max_epochs is not None else int(config['train']['epochs'])
@@ -339,11 +341,22 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                     logger.metric(f"New Best {primary_metric}: {best_metric}")
 
                     if checkpoint_manager is not None:
-                        checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
+                        save_path = checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
+                        
+                        # Checking if the path exists or if there is a s3 client
+                        if save_path and s3_sync:
+                            # Saving the S3 sync
+                            s3_sync.upload_directory(local_dir= save_path, s3_sub_prefix= str(checkpoint_manager.best_directory))
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
-                checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
+                save_path = checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
+                
+                # Checking if the path exists or if there is a s3 client
+                if save_path and s3_sync:
+                    # Saving the S3 sync
+                    s3_sync.upload_directory(local_dir= save_path, s3_sub_prefix= str(checkpoint_manager.last_directory))
+                
 
             # Logging the end of the model
             logger.metric(f"Epoch {epoch + 1} done. best_{primary_metric}={best_metric}")

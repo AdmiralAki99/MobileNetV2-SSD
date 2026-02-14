@@ -28,11 +28,11 @@ from training.amp import build_amp
 from training.metrics import build_metrics_from_config
 from training.ema import build_ema, EMA
 from training.checkpoints import build_checkpoint_manager
-from training.resume import collect_resumable_runs, select_run_interactive, validate_checkpoint_compatibility
-
+from training.resume import collect_resumable_runs, select_run_interactive, validate_checkpoint_compatibility, discover_checkpoint
 from training.shutdown import ShutdownHandler
-
 from training.engine import fit
+
+from infrastructure.s3_sync import build_s3_sync
 
 import tensorflow as tf
 
@@ -84,7 +84,7 @@ def parse_args():
     parser.add_argument('--local_rank', type=int, default=0, help='Local rank for distributed training.')
     parser.add_argument('--print_config', action='store_true', help='Print the configuration and exit.')
     parser.add_argument('--dry_run', action='store_true', help='Perform a dry run without training.')
-    
+    parser.add_argument('--run_from', type=str, default=None, help='Resume directory from user')
     
     args = parser.parse_args()
         
@@ -98,6 +98,7 @@ def parse_args():
         'local_rank': args.local_rank,
         'print_config': args.print_config,
         'dry_run': args.dry_run,
+        'resume_from': args.run_from
     }
     
 def initialize_run_settings(args: dict[str, Any]):
@@ -145,6 +146,20 @@ def initialize_run_settings(args: dict[str, Any]):
                 print("No selected path found..............")
         else:
             print("No resumable runs found. Starting fresh.")
+    elif args['resume_from']:
+        run_path = Path(args['resume_from'])
+        
+        # Need to check if it is a directory and if it is a checkpoint path
+        if run_path.is_dir():
+            discovered_ckpt = discover_checkpoint(run_path)
+            if discovered_ckpt is None:
+                # Then the resume path is wrong its an error
+                print(f"No checkpoint found in {run_path}")
+                exit(1)
+            
+            args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
+        else:
+            args['resume_checkpoint_path'] = run_path
     
     fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
     
@@ -312,12 +327,18 @@ def initialize_framework(args: dict[str, Any]):
     checkpoint_manager = create_build_checkpoint_manager(config= config, model= model, logger= logger, ema= ema, optimizer= optimizer, fingerprint= fingerprint)
     logger.success(f"Successfully Created Checkpoint Manager")
     
+    # Building the S3 Sync Manager
+    logger.info(f"Creating S3 Sync Client...{'.'*20}")
+    s3_sync_client = build_s3_sync(config= config, logger= logger)
+    logger.success(f"Successfully Created S3 Sync Client")
+    
+    
     if args['dry_run']:
         logger.success(f"Dry Run Successfully Completed...{'.'*20}")
         exit(0)
 
     
-    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager)
+    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client)
 
 def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, resume_ckpt_path: Path | None = None):
     if resume_ckpt_path:
@@ -358,7 +379,8 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
                         start_epoch= start_epoch,
                         global_step= global_step,
                         max_epochs= framework_opts.config['train']['epochs'],
-                        shutdown_handler= shutdown_handler)
+                        shutdown_handler= shutdown_handler,
+                        s3_sync= framework_opts.s3_client)
         
     # Saving the Model weights:
     framework_opts.logger.save_model_weights(framework_opts.model,training_result, framework_opts.config, framework_opts.fingerprint, framework_opts.ema)

@@ -124,10 +124,7 @@ def _get_nested(d: dict, key: str, default=None):
     return d
 
 
-def validate_checkpoint_compatibility(
-    saved_config: dict[str, Any],
-    current_config: dict[str, Any],
-) -> tuple[bool, list[str]]:
+def validate_checkpoint_compatibility(saved_config: dict[str, Any],current_config: dict[str, Any],):
     warnings = []
     is_compatible = True
 

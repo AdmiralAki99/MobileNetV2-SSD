@@ -70,6 +70,14 @@ class CheckpointManager:
             self._best_directory.mkdir(parents = True, exist_ok = True)
             self._best_manager = tf.train.CheckpointManager(checkpoint = self._checkpoint, directory = str(self._best_directory), max_to_keep = 1)
         
+    @property
+    def last_directory(self):
+        return self._last_directory
+    
+    @property
+    def best_directory(self):
+        return self._best_directory
+    
     def build_optimizer(self, var_group: list[tf.Variable]):
         # Need to build the singular optimizer 
         if isinstance(self._optimizer, tf.keras.optimizers.Optimizer):
