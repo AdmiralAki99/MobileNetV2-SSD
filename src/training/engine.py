@@ -1,4 +1,5 @@
 import tensorflow as tf
+from pathlib import Path
 import numpy as np
 from typing import Any
 
@@ -23,6 +24,7 @@ from training.metrics import convert_batch_images_to_metric_format, MetricsColle
 from training.shutdown import ShutdownHandler
 
 from infrastructure.s3_sync import S3SyncClient
+from infrastructure.util import upload_training_artifacts
 
 def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
     
@@ -341,21 +343,23 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                     logger.metric(f"New Best {primary_metric}: {best_metric}")
 
                     if checkpoint_manager is not None:
-                        save_path = checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
-                        
-                        # Checking if the path exists or if there is a s3 client
-                        if save_path and s3_sync:
-                            # Saving the S3 sync
-                            s3_sync.upload_directory(local_dir= save_path, s3_sub_prefix= str(checkpoint_manager.best_directory))
+                        result = checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
+
+                        # Upload training artifacts to S3
+                        if result['is_best'] and s3_sync:
+                            run_root = Path(config['run']['root'])
+                            log_dir = checkpoint_manager.log_directory
+                            upload_training_artifacts(s3_sync, log_dir, run_root)
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
                 save_path = checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
-                
-                # Checking if the path exists or if there is a s3 client
+
+                # Upload training artifacts to S3
                 if save_path and s3_sync:
-                    # Saving the S3 sync
-                    s3_sync.upload_directory(local_dir= save_path, s3_sub_prefix= str(checkpoint_manager.last_directory))
+                    run_root = Path(config['run']['root'])
+                    log_dir = checkpoint_manager.log_directory
+                    upload_training_artifacts(s3_sync, log_dir, run_root)
                 
 
             # Logging the end of the model
@@ -364,9 +368,16 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
     except GracefulShutdownException:
         logger.warning("Shutdown signal received, saving emergency checkpoint...")
         if checkpoint_manager is not None:
-            checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
-            
-        raise # Raising it again so it propagates to the top
+            save_path = checkpoint_manager.save_last(epoch=epoch, global_step=global_step)
+
+            # Upload training artifacts to S3
+            if save_path and s3_sync is not None:
+                run_root = Path(config['run']['root'])
+                log_dir = checkpoint_manager.log_directory
+                upload_training_artifacts(s3_sync, log_dir, run_root)
+                logger.info(f"Emergency training artifacts uploaded to S3")
+
+        raise  # Raising it again so it propagates to the top
 
     # Return Training Summary [final_epoch_metrics, best_metric, checkpoint_path]
     return {

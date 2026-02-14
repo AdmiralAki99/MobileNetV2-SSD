@@ -73,11 +73,15 @@ class CheckpointManager:
     @property
     def last_directory(self):
         return self._last_directory
-    
+
     @property
     def best_directory(self):
         return self._best_directory
-    
+
+    @property
+    def log_directory(self):
+        return self._checkpoint_directory.parent
+
     def build_optimizer(self, var_group: list[tf.Variable]):
         # Need to build the singular optimizer 
         if isinstance(self._optimizer, tf.keras.optimizers.Optimizer):

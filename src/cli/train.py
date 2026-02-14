@@ -332,10 +332,27 @@ def initialize_framework(args: dict[str, Any]):
     s3_sync_client = build_s3_sync(config= config, logger= logger)
     logger.success(f"Successfully Created S3 Sync Client")
     
+    if s3_sync_client is not None:
+        # Getting the info for the upload
+        experiment_name = config.get('experiment', {}).get('id', 'exp')
+        experiment_subdir = f"{experiment_name}_{fingerprint.short}"
+
+        # local_dir is absolute (for file operations)
+        run_root = Path(config['run']['root'])
+        experiment_directory = run_root / experiment_subdir
+
+        # s3_sub_prefix is always relative, derived from actual directory name
+        run_root_name = run_root.name  # e.g., "runs", "runs_log", "experiments"
+        s3_sub_prefix = f"{run_root_name}/{experiment_subdir}"
+
+        s3_sync_client.upload_directory(local_dir=experiment_directory, s3_sub_prefix=s3_sub_prefix)
     
     if args['dry_run']:
         logger.success(f"Dry Run Successfully Completed...{'.'*20}")
         exit(0)
+        
+    # Uploading the metadata to S3 for storage
+
 
     
     return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client)
@@ -412,6 +429,23 @@ def execute_training():
         traceback.print_exc()
     finally:
         if framework_opts is not None:
+            experiment_name = framework_opts.config.get('experiment', {}).get('id', 'exp')
+            experiment_subdir = f"{experiment_name}_{framework_opts.fingerprint.short}"
+
+            # local paths are absolute
+            run_root = Path(framework_opts.config['run']['root'])
+            experiment_directory = run_root / experiment_subdir
+            status_path = experiment_directory / "status.json"
+
+            with open(status_path, 'w') as file:
+                json.dump({'status': "success" if exit_code == 0 else "failed"}, file)
+
+            if framework_opts.s3_client is not None:
+                # s3_sub_prefix is always relative, derived from actual directory name
+                run_root_name = run_root.name
+                s3_sub_prefix = f"{run_root_name}/{experiment_subdir}"
+                framework_opts.s3_client.upload_directory(local_dir=experiment_directory, s3_sub_prefix=s3_sub_prefix)
+
             framework_opts.logger.close()
         
         handler.unregister()
