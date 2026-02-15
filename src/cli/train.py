@@ -33,6 +33,7 @@ from training.shutdown import ShutdownHandler
 from training.engine import fit
 
 from infrastructure.s3_sync import build_s3_sync
+from infrastructure.util import download_checkpoint_from_s3
 
 import tensorflow as tf
 
@@ -147,19 +148,47 @@ def initialize_run_settings(args: dict[str, Any]):
         else:
             print("No resumable runs found. Starting fresh.")
     elif args['resume_from']:
-        run_path = Path(args['resume_from'])
-        
-        # Need to check if it is a directory and if it is a checkpoint path
-        if run_path.is_dir():
-            discovered_ckpt = discover_checkpoint(run_path)
-            if discovered_ckpt is None:
-                # Then the resume path is wrong its an error
-                print(f"No checkpoint found in {run_path}")
+        resume_from = args['resume_from']
+
+        # Check if it's an S3 path - download checkpoint files first
+        if resume_from.startswith("s3://"):
+            print(f"Downloading checkpoint from S3: {resume_from}")
+            s3_client = build_s3_sync(config)
+            if s3_client is None:
+                print("S3 client not configured. Cannot download from S3.")
                 exit(1)
-            
+
+            # Extract the S3 prefix (everything after bucket/)
+            # e.g., s3://bucket/runs/exp001/logs/.../checkpoints/last -> runs/exp001/logs/.../checkpoints/last
+            from infrastructure.s3_sync import parse_bucket_uri
+            _, s3_prefix = parse_bucket_uri(resume_from)
+
+            local_dir = download_checkpoint_from_s3(s3_client, s3_prefix)
+            if local_dir is None:
+                print(f"Failed to download checkpoint from {resume_from}")
+                exit(1)
+
+            discovered_ckpt = discover_checkpoint(local_dir)
+            if discovered_ckpt is None:
+                print(f"No checkpoint found in downloaded files at {local_dir}")
+                exit(1)
+
             args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
+            print(f"Checkpoint downloaded to {local_dir}")
         else:
-            args['resume_checkpoint_path'] = run_path
+            run_path = Path(resume_from)
+
+            # Need to check if it is a directory and if it is a checkpoint path
+            if run_path.is_dir():
+                discovered_ckpt = discover_checkpoint(run_path)
+                if discovered_ckpt is None:
+                    # Then the resume path is wrong its an error
+                    print(f"No checkpoint found in {run_path}")
+                    exit(1)
+
+                args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
+            else:
+                args['resume_checkpoint_path'] = run_path
     
     fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
     

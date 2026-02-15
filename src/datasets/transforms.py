@@ -1,5 +1,4 @@
 from unittest import case
-from matplotlib.pylab import shape
 import tensorflow as tf
 from typing import Any
 
