@@ -8,6 +8,8 @@ from training.metrics import MetricsCollection
 from training.checkpoints import CheckpointManager
 from training.ema import EMA
 from training.amp import AMPContext
+
+from infrastructure.s3_sync import S3SyncClient
 import tensorflow as tf
 
 
@@ -39,6 +41,9 @@ class TrainingBundle:
     max_epochs: int | None = None
     global_step: int = 0
     best_metric: int | None = None
+    
+    # S3 Sync Client for storage
+    s3_client: S3SyncClient | None = None
     
 # @dataclass
 # class InferenceBundle:

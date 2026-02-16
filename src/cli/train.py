@@ -4,6 +4,7 @@ import sys
 from typing import Any
 from datetime import datetime, timezone
 import argparse
+import json
 
 from cli.bundle import TrainingBundle
 
@@ -27,10 +28,12 @@ from training.amp import build_amp
 from training.metrics import build_metrics_from_config
 from training.ema import build_ema, EMA
 from training.checkpoints import build_checkpoint_manager
-
+from training.resume import collect_resumable_runs, select_run_interactive, validate_checkpoint_compatibility, discover_checkpoint
 from training.shutdown import ShutdownHandler
-
 from training.engine import fit
+
+from infrastructure.s3_sync import build_s3_sync
+from infrastructure.util import download_checkpoint_from_s3
 
 import tensorflow as tf
 
@@ -82,9 +85,10 @@ def parse_args():
     parser.add_argument('--local_rank', type=int, default=0, help='Local rank for distributed training.')
     parser.add_argument('--print_config', action='store_true', help='Print the configuration and exit.')
     parser.add_argument('--dry_run', action='store_true', help='Perform a dry run without training.')
-    
+    parser.add_argument('--run_from', type=str, default=None, help='Resume directory from user')
     
     args = parser.parse_args()
+        
     
     return {
         'experiment_path': Path(args.experiment_path),
@@ -95,6 +99,7 @@ def parse_args():
         'local_rank': args.local_rank,
         'print_config': args.print_config,
         'dry_run': args.dry_run,
+        'resume_from': args.run_from
     }
     
 def initialize_run_settings(args: dict[str, Any]):
@@ -110,9 +115,6 @@ def initialize_run_settings(args: dict[str, Any]):
     if args['debug']:
         print("Debug mode enabled. Setting up debug settings...")
         
-    if args['resume']:
-        print("Resume mode enabled. Will attempt to resume from the last checkpoint if available.")
-        
     if args['print_config']:
         print("Print config mode enabled. Will print the configuration and exit.")
         # Print the configuration and exit
@@ -127,6 +129,67 @@ def initialize_run_settings(args: dict[str, Any]):
     # Now creating the logger and other settings
     
     config = load_config(experiment_path=experiment_path, config_root=config_root)
+    
+    if args['resume']:
+        runs = collect_resumable_runs(Path(config['run']['root']))
+        if runs:
+            selected = select_run_interactive(runs)
+            if selected is not None:
+                with open(str(selected['experiment_dir'] / "config.json")) as config_file:
+                    saved_config = json.load(config_file)
+                    
+                compatibility_flag, warnings = validate_checkpoint_compatibility(saved_config= saved_config, current_config= config)
+                if not compatibility_flag:
+                    print(f"Error in the restore path config and the current config : {warnings}")
+                    exit(1)
+                args['resume_checkpoint_path'] = selected['ckpt_path']
+            else:
+                print("No selected path found..............")
+        else:
+            print("No resumable runs found. Starting fresh.")
+    elif args['resume_from']:
+        resume_from = args['resume_from']
+
+        # Check if it's an S3 path - download checkpoint files first
+        if resume_from.startswith("s3://"):
+            print(f"Downloading checkpoint from S3: {resume_from}")
+            s3_client = build_s3_sync(config)
+            if s3_client is None:
+                print("S3 client not configured. Cannot download from S3.")
+                exit(1)
+
+            # Extract the S3 prefix (everything after bucket/)
+            # e.g., s3://bucket/runs/exp001/logs/.../checkpoints/last -> runs/exp001/logs/.../checkpoints/last
+            from infrastructure.s3_sync import parse_bucket_uri
+            _, s3_prefix = parse_bucket_uri(resume_from)
+
+            local_dir = download_checkpoint_from_s3(s3_client, s3_prefix)
+            if local_dir is None:
+                print(f"Failed to download checkpoint from {resume_from}")
+                exit(1)
+
+            discovered_ckpt = discover_checkpoint(local_dir)
+            if discovered_ckpt is None:
+                print(f"No checkpoint found in downloaded files at {local_dir}")
+                exit(1)
+
+            args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
+            print(f"Checkpoint downloaded to {local_dir}")
+        else:
+            run_path = Path(resume_from)
+
+            # Need to check if it is a directory and if it is a checkpoint path
+            if run_path.is_dir():
+                discovered_ckpt = discover_checkpoint(run_path)
+                if discovered_ckpt is None:
+                    # Then the resume path is wrong its an error
+                    print(f"No checkpoint found in {run_path}")
+                    exit(1)
+
+                args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
+            else:
+                args['resume_checkpoint_path'] = run_path
+    
     fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
     
     # Formatting the timestamp for logging and metadata
@@ -164,10 +227,12 @@ def create_datasets(config: dict[str, Any], logger: Logger):
     # Training dataset has to always be created, but validation dataset is optional based on the config
     training_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
     logger.info(f"Created {training_dataset.__class__.__name__} training dataset with {len(training_dataset)} samples {'.'*20}")
+    logger.info(f"Train loop has {int(len(training_dataset) / config['data']['train']['batch_size'])} steps{'.'*20}")
     
     if config['eval']['eval_enabled']:
         validation_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
         logger.info(f"Created {validation_dataset.__class__.__name__} validation dataset with {len(validation_dataset)} samples {'.'*20}")
+        logger.info(f"Eval loop has {int(len(validation_dataset) / config['data']['val']['batch_size'])} steps{'.'*20}")
         
     # Leveraging the tf.data.Dataset API to create the training and validation datasets
     train_dataset = create_training_dataset(config= config, dataset= training_dataset, transform= train_compose)
@@ -291,15 +356,42 @@ def initialize_framework(args: dict[str, Any]):
     checkpoint_manager = create_build_checkpoint_manager(config= config, model= model, logger= logger, ema= ema, optimizer= optimizer, fingerprint= fingerprint)
     logger.success(f"Successfully Created Checkpoint Manager")
     
+    # Building the S3 Sync Manager
+    logger.info(f"Creating S3 Sync Client...{'.'*20}")
+    s3_sync_client = build_s3_sync(config= config, logger= logger)
+    logger.success(f"Successfully Created S3 Sync Client")
+    
+    if s3_sync_client is not None:
+        # Getting the info for the upload
+        experiment_name = config.get('experiment', {}).get('id', 'exp')
+        experiment_subdir = f"{experiment_name}_{fingerprint.short}"
+
+        # local_dir is absolute (for file operations)
+        run_root = Path(config['run']['root'])
+        experiment_directory = run_root / experiment_subdir
+
+        # s3_sub_prefix is always relative, derived from actual directory name
+        run_root_name = run_root.name  # e.g., "runs", "runs_log", "experiments"
+        s3_sub_prefix = f"{run_root_name}/{experiment_subdir}"
+
+        s3_sync_client.upload_directory(local_dir=experiment_directory, s3_sub_prefix=s3_sub_prefix)
+    
     if args['dry_run']:
         logger.success(f"Dry Run Successfully Completed...{'.'*20}")
         exit(0)
+        
+    # Uploading the metadata to S3 for storage
+
 
     
-    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager)
+    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client)
 
-def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler):
-    restore_state= framework_opts.checkpoint_manager.restore_latest()
+def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, resume_ckpt_path: Path | None = None):
+    if resume_ckpt_path:
+        # There is a path that the user passed and needs to restore from
+        restore_state= framework_opts.checkpoint_manager.restore_from_directory(resume_ckpt_path)
+    else:
+        restore_state= framework_opts.checkpoint_manager.restore_latest()
     
     if not restore_state['restored']:
         start_epoch = restore_state['epoch']
@@ -333,7 +425,8 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler):
                         start_epoch= start_epoch,
                         global_step= global_step,
                         max_epochs= framework_opts.config['train']['epochs'],
-                        shutdown_handler= shutdown_handler)
+                        shutdown_handler= shutdown_handler,
+                        s3_sync= framework_opts.s3_client)
         
     # Saving the Model weights:
     framework_opts.logger.save_model_weights(framework_opts.model,training_result, framework_opts.config, framework_opts.fingerprint, framework_opts.ema)
@@ -344,6 +437,7 @@ def execute_training():
     handler.register()
     
     framework_opts = None
+    args = None
     exit_code = 0
     
     try:
@@ -352,8 +446,8 @@ def execute_training():
         framework_opts = initialize_framework(args= args)
     
         framework_opts.logger.success(f"Completed the initialization stage for the framework...{'.'*20}")
-    
-        train(framework_opts= framework_opts, shutdown_handler= handler)
+        resume_path = args.get('resume_checkpoint_path', None)
+        train(framework_opts= framework_opts, shutdown_handler= handler, resume_ckpt_path= resume_path)
     except GracefulShutdownException as err:
         exit_code= 128 + err.signal_number
     except Exception as err:
@@ -364,6 +458,23 @@ def execute_training():
         traceback.print_exc()
     finally:
         if framework_opts is not None:
+            experiment_name = framework_opts.config.get('experiment', {}).get('id', 'exp')
+            experiment_subdir = f"{experiment_name}_{framework_opts.fingerprint.short}"
+
+            # local paths are absolute
+            run_root = Path(framework_opts.config['run']['root'])
+            experiment_directory = run_root / experiment_subdir
+            status_path = experiment_directory / "status.json"
+
+            with open(status_path, 'w') as file:
+                json.dump({'status': "success" if exit_code == 0 else "failed"}, file)
+
+            if framework_opts.s3_client is not None:
+                # s3_sub_prefix is always relative, derived from actual directory name
+                run_root_name = run_root.name
+                s3_sub_prefix = f"{run_root_name}/{experiment_subdir}"
+                framework_opts.s3_client.upload_directory(local_dir=experiment_directory, s3_sub_prefix=s3_sub_prefix)
+
             framework_opts.logger.close()
         
         handler.unregister()
@@ -374,7 +485,6 @@ def execute_training():
 if __name__ == "__main__":
     
    sys.exit(execute_training())
-        
     
     
          

@@ -1,4 +1,5 @@
 import tensorflow as tf
+from pathlib import Path
 import numpy as np
 from typing import Any
 
@@ -21,6 +22,9 @@ from training.amp import AMPContext
 from training.ema import EMA
 from training.metrics import convert_batch_images_to_metric_format, MetricsCollection
 from training.shutdown import ShutdownHandler
+
+from infrastructure.s3_sync import S3SyncClient
+from infrastructure.util import upload_training_artifacts
 
 def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
     
@@ -285,7 +289,7 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
     
     return metrics_manager.compute()    
 
-def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None):
+def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None, s3_sync: S3SyncClient = None):
     # Initialize overarching variables
     # 1. Epoch, 2. eval_every, 3. log_every, 4. heavy_log_every, 5. save_every, 6. save_best, 7. best_metric, 8. global_step
     epochs = max_epochs if max_epochs is not None else int(config['train']['epochs'])
@@ -339,11 +343,24 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                     logger.metric(f"New Best {primary_metric}: {best_metric}")
 
                     if checkpoint_manager is not None:
-                        checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
+                        result = checkpoint_manager.save_best(epoch= epoch, global_step= global_step, metric= best_metric)
+
+                        # Upload training artifacts to S3
+                        if result['is_best'] and s3_sync:
+                            run_root = Path(config['run']['root'])
+                            log_dir = checkpoint_manager.log_directory
+                            upload_training_artifacts(s3_sync, log_dir, run_root)
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
-                checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
+                save_path = checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
+
+                # Upload training artifacts to S3
+                if save_path and s3_sync:
+                    run_root = Path(config['run']['root'])
+                    log_dir = checkpoint_manager.log_directory
+                    upload_training_artifacts(s3_sync, log_dir, run_root)
+                
 
             # Logging the end of the model
             logger.metric(f"Epoch {epoch + 1} done. best_{primary_metric}={best_metric}")
@@ -351,9 +368,16 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
     except GracefulShutdownException:
         logger.warning("Shutdown signal received, saving emergency checkpoint...")
         if checkpoint_manager is not None:
-            checkpoint_manager.save_last(epoch= epoch, global_step= global_step)
-            
-        raise # Raising it again so it propagates to the top
+            save_path = checkpoint_manager.save_last(epoch=epoch, global_step=global_step)
+
+            # Upload training artifacts to S3
+            if save_path and s3_sync is not None:
+                run_root = Path(config['run']['root'])
+                log_dir = checkpoint_manager.log_directory
+                upload_training_artifacts(s3_sync, log_dir, run_root)
+                logger.info(f"Emergency training artifacts uploaded to S3")
+
+        raise  # Raising it again so it propagates to the top
 
     # Return Training Summary [final_epoch_metrics, best_metric, checkpoint_path]
     return {
