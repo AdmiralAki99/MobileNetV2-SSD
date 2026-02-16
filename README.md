@@ -273,7 +273,7 @@ Two container images are provided:
 ```
 ┌──────────────────┐
 │   TensorBoard    │ ◄── syncs from S3 every 60s
-│   localhost:6006  │
+│   localhost:6006 │
 └────────┬─────────┘
          │
     ┌────┴────┐
@@ -282,10 +282,10 @@ Two container images are provided:
          │ uploads after each epoch
     ┌────┴────┬──────────┐
     │         │          │
-┌───┴───┐ ┌──┴────┐ ┌───┴───┐
-│exp001 │ │exp002 │ │exp003 │   ← one GPU each
-│GPU 0  │ │GPU 1  │ │GPU 2  │
-└───────┘ └───────┘ └───────┘
+┌───┴───┐ ┌──┴────┐  ┌───┴───┐
+│exp001 │ │exp002 │  │exp003 │   ← one GPU each
+│GPU 0  │ │GPU 1  │  │GPU 2  │
+└───────┘ └───────┘  └───────┘
 ```
 
 ```bash
