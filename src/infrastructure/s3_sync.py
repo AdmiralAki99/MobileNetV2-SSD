@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 
-class DownloadProgressBar:
+class ProgressBar:
 
     def __init__(self, filename: str, total_bytes: int):
         self._filename = filename
@@ -118,7 +118,7 @@ class S3SyncClient:
                     local_file.parent.mkdir(parents=True, exist_ok=True)
 
                     file_size = obj.get('Size', 0)
-                    progress = DownloadProgressBar(relative_path, file_size)
+                    progress = ProgressBar(relative_path, file_size)
 
                     self._client.download_file(
                         Bucket=self._bucket,
