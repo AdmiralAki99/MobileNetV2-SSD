@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 from mobilenetv2ssd.core.logger import Logger
 from mobilenetv2ssd.core.fingerprint import Fingerprint
 from typing import Any
@@ -418,19 +419,21 @@ def inference_function(config: dict[str,Any], dataset_batch: dict[str, Any], mod
     image_id= tf.squeeze(image_id)
     valid_gt= tf.boolean_mask(gt_boxes, gt_mask)
     valid_gt_labels= tf.boolean_mask(gt_labels, gt_mask)
-    
+
     pred_labels= tf.gather(model_prediction['pred_classes'], gather_index)
     pred_labels= tf.squeeze(pred_labels, axis= 0)
     pred_scores = tf.gather(model_prediction['pred_scores'], gather_index)
     pred_scores= tf.squeeze(pred_scores, axis= 0)
     pred_boxes = tf.gather(model_prediction['pred_boxes'], gather_index)
     pred_boxes= tf.squeeze(pred_boxes, axis= 0)
-    
+
     # Choosing the labels
     top_k_scores, top_k_indices = tf.math.top_k(pred_scores, k= top_k_per_image, sorted=True)
     top_k_boxes= tf.gather(pred_boxes, top_k_indices)
     top_k_labels= tf.gather(pred_labels, top_k_indices)
 
     img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= model_prediction['class_labels'])
+    
+    logger.log_image("val/inference_image", image= img, step= global_step)
     
     logger.success(f"Logged eval image....{'.'*20}")

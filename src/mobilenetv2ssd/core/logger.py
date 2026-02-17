@@ -441,8 +441,7 @@ class Logger:
             "tensorboard",
             "--logdir", str(target_dir),
             "--port", str(port),
-            "--host", host,
-            "--bind_all"
+            "--host", host
         ]
         
         self.info(f"Starting TensorBoard on port {port}...")
