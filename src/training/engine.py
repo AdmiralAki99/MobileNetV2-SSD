@@ -24,7 +24,6 @@ from training.metrics import convert_batch_images_to_metric_format, MetricsColle
 from training.shutdown import ShutdownHandler
 
 from infrastructure.s3_sync import S3SyncClient
-from infrastructure.util import upload_training_artifacts
 
 def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
     
@@ -165,9 +164,11 @@ def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf
         'gt_boxes': boxes,
         'gt_labels': labels,
         'gt_mask': gt_mask,
-        'valid_detections': valid_detections
+        'valid_detections': valid_detections,
+        'class_labels': classes
     }
 
+# TODO: Add Global Step Offset for continuous tracking
 def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, val_dataset: tf.data.Dataset, metrics_manager: MetricsCollection, precision_config: PrecisionConfig, ema: EMA, logger: Logger = None, max_steps: int| None = None, log_every: int = 1, heavy_log_every: int = 100, shutdown_handler: ShutdownHandler = None):
     # Reset the metrics manager
     metrics_manager.reset()
@@ -323,10 +324,10 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
             
                 raise GracefulShutdownException(signal_number= signal_number)
         
-            logger.metric(f"Epoch {epoch+1}/{epochs} starting")
+            logger.metric(f"Epoch {epoch+1}/{epochs} starting {"="*20}")
 
             # Training over one epoch
-            train_loss, global_step = train_one_epoch(config, epoch, model, train_dataset, optimizer, priors_cxcywh, precision_config, ema = ema, amp = amp, logger = logger, log_every= train_log_every, shutdown_handler= shutdown_handler)
+            train_loss, global_step = train_one_epoch(config, epoch, model, train_dataset, optimizer, priors_cxcywh, precision_config, ema = ema, amp = amp, logger = logger, global_step_offset= global_step, log_every= train_log_every, shutdown_handler= shutdown_handler)
 
             # Logging the scalar
             logger.log_scalar("train/loss_epoch_mean", float(train_loss.numpy()), step=global_step)
@@ -349,7 +350,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                         if result['is_best'] and s3_sync:
                             run_root = Path(config['run']['root'])
                             log_dir = checkpoint_manager.log_directory
-                            upload_training_artifacts(s3_sync, log_dir, run_root)
+                            s3_sync.upload_training_artifacts(log_dir, run_root)
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
@@ -359,7 +360,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                 if save_path and s3_sync:
                     run_root = Path(config['run']['root'])
                     log_dir = checkpoint_manager.log_directory
-                    upload_training_artifacts(s3_sync, log_dir, run_root)
+                    s3_sync.upload_training_artifacts(log_dir, run_root)
                 
 
             # Logging the end of the model
@@ -374,7 +375,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
             if save_path and s3_sync is not None:
                 run_root = Path(config['run']['root'])
                 log_dir = checkpoint_manager.log_directory
-                upload_training_artifacts(s3_sync, log_dir, run_root)
+                s3_sync.upload_training_artifacts(log_dir, run_root)
                 logger.info(f"Emergency training artifacts uploaded to S3")
 
         raise  # Raising it again so it propagates to the top

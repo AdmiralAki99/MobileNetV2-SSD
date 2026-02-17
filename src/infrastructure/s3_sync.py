@@ -26,11 +26,33 @@ class ProgressBar:
             sys.stdout.flush()
 
 class S3SyncClient:
-    def __init__(self, bucket: str, base_prefix: str, logger: Any = None):
+    def __init__(self, checkpoint_bucket: str, artifact_bucket: str = None, dataset_bucket: str = None, logger: Any = None):
+        # checkpoint_bucket: S3 URI for checkpoints (required)
+        # artifact_bucket: S3 URI for final artifacts (weights, summaries)
+        # dataset_bucket: S3 URI for datasets
+        # logger: Logger instance
+        
         self._client = boto3.client('s3')
-        self._bucket = bucket
-        self._base_prefix = base_prefix
         self._logger = logger
+
+        # Parse checkpoint bucket (required)
+        self._checkpoint_bucket, self._checkpoint_prefix = parse_bucket_uri(checkpoint_bucket)
+
+        # Parse artifact bucket (optional)
+        if artifact_bucket:
+            self._artifact_bucket, self._artifact_prefix = parse_bucket_uri(artifact_bucket)
+        else:
+            self._artifact_bucket, self._artifact_prefix = None, None
+
+        # Parse dataset bucket (optional)
+        if dataset_bucket:
+            self._dataset_bucket, self._dataset_prefix = parse_bucket_uri(dataset_bucket)
+        else:
+            self._dataset_bucket, self._dataset_prefix = None, None
+
+        # Legacy support - default to checkpoint bucket
+        self._bucket = self._checkpoint_bucket
+        self._base_prefix = self._checkpoint_prefix
     
     def upload_file(self, local_file: Path, s3_key: str):
         try:
@@ -139,8 +161,139 @@ class S3SyncClient:
             else:
                 print(f"S3 download failed: {err}")
             return False
-    
-    
+
+    def upload_training_artifacts(self, log_directory: Path, run_root: Path):
+        # log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
+        # run_root: Path to run root directory (e.g., runs/)
+        
+        if self._checkpoint_bucket is None:
+            return
+
+        # Upload checkpoint files from last/
+        last_checkpoint_dir = log_directory / "checkpoints" / "last"
+        if last_checkpoint_dir.exists():
+            for ckpt_file in last_checkpoint_dir.glob("ckpt-*"):
+                if ckpt_file.is_file():
+                    relative_path = ckpt_file.relative_to(run_root.parent)
+                    s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                    self._client.upload_file(
+                        Filename=str(ckpt_file),
+                        Bucket=self._checkpoint_bucket,
+                        Key=s3_key
+                    )
+                    if self._logger:
+                        self._logger.info(f"Uploaded {s3_key}")
+
+        # Upload checkpoint files from best/
+        best_checkpoint_dir = log_directory / "checkpoints" / "best"
+        if best_checkpoint_dir.exists():
+            for ckpt_file in best_checkpoint_dir.glob("ckpt-*"):
+                if ckpt_file.is_file():
+                    relative_path = ckpt_file.relative_to(run_root.parent)
+                    s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                    self._client.upload_file(
+                        Filename=str(ckpt_file),
+                        Bucket=self._checkpoint_bucket,
+                        Key=s3_key
+                    )
+                    if self._logger:
+                        self._logger.info(f"Uploaded {s3_key}")
+
+        # Upload TensorBoard events (in log directory)
+        for tb_file in log_directory.glob("events.out.tfevents.*"):
+            if tb_file.is_file():
+                relative_path = tb_file.relative_to(run_root.parent)
+                s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                self._client.upload_file(
+                    Filename=str(tb_file),
+                    Bucket=self._checkpoint_bucket,
+                    Key=s3_key
+                )
+
+        # Upload TensorBoard events (in tensorboard subdirectory if exists)
+        tb_subdir = log_directory / "tensorboard"
+        if tb_subdir.exists():
+            for tb_file in tb_subdir.glob("events.out.tfevents.*"):
+                if tb_file.is_file():
+                    relative_path = tb_file.relative_to(run_root.parent)
+                    s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                    self._client.upload_file(
+                        Filename=str(tb_file),
+                        Bucket=self._checkpoint_bucket,
+                        Key=s3_key
+                    )
+
+        # Upload training.log
+        training_log = log_directory / "training.log"
+        if training_log.exists():
+            relative_path = training_log.relative_to(run_root.parent)
+            s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(
+                Filename=str(training_log),
+                Bucket=self._checkpoint_bucket,
+                Key=s3_key
+            )
+
+        # Upload metric history
+        metric_file = log_directory / "metric_history.json"
+        if metric_file.exists():
+            relative_path = metric_file.relative_to(run_root.parent)
+            s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(
+                Filename=str(metric_file),
+                Bucket=self._checkpoint_bucket,
+                Key=s3_key
+            )
+
+        # Upload checkpoint metadata file
+        checkpoint_metadata = log_directory / "checkpoints" / "checkpoint"
+        if checkpoint_metadata.exists():
+            relative_path = checkpoint_metadata.relative_to(run_root.parent)
+            s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(
+                Filename=str(checkpoint_metadata),
+                Bucket=self._checkpoint_bucket,
+                Key=s3_key
+            )
+
+    def upload_final_artifacts(self, log_directory: Path, run_root: Path):
+        #  log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
+        #  run_root: Path to run root directory (e.g., runs/)
+        
+        if self._artifact_bucket is None:
+            if self._logger:
+                self._logger.warning("Artifact bucket not configured. Skipping final artifact upload.")
+            return
+
+        # Upload weights directory
+        weights_dir = log_directory / "weights"
+        if weights_dir.exists():
+            for weight_file in weights_dir.glob("*"):
+                if weight_file.is_file():
+                    relative_path = weight_file.relative_to(run_root.parent)
+                    s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                    self._client.upload_file(
+                        Filename=str(weight_file),
+                        Bucket=self._artifact_bucket,
+                        Key=s3_key
+                    )
+                    if self._logger:
+                        self._logger.info(f"Uploaded final artifact: {s3_key}")
+
+        # Upload training summary
+        summary_file = log_directory.parent / "training_summary.json"
+        if summary_file.exists():
+            relative_path = summary_file.relative_to(run_root.parent)
+            s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(
+                Filename=str(summary_file),
+                Bucket=self._artifact_bucket,
+                Key=s3_key
+            )
+            if self._logger:
+                self._logger.info(f"Uploaded training summary: {s3_key}")
+
+
 def parse_bucket_uri(uri: str):
     # Separate the s3://
     path = uri.removeprefix("s3://")
@@ -155,19 +308,29 @@ def parse_bucket_uri(uri: str):
 
 
 def build_s3_sync(config: dict, logger: Any = None):
-    bucket_uri = config.get('infrastructure',{}).get('storage',{}).get('checkpoint_bucket')
-    
-    # Check if the bucket exists
-    if not bucket_uri:
+
+    storage_config = config.get('infrastructure', {}).get('storage', {})
+
+    checkpoint_bucket = storage_config.get('checkpoint_bucket')
+    artifact_bucket = storage_config.get('artifact_bucket')
+    dataset_bucket = storage_config.get('dataset_bucket')
+
+    # Checkpoint bucket is required
+    if not checkpoint_bucket:
+        if logger:
+            logger.warning("No checkpoint bucket configured. S3 sync disabled.")
         return None
-    
+
     try:
-    
-        bucket, prefix = parse_bucket_uri(uri= bucket_uri)
-        client = S3SyncClient(bucket= bucket, base_prefix= prefix, logger= logger)
+        client = S3SyncClient(
+            checkpoint_bucket=checkpoint_bucket,
+            artifact_bucket=artifact_bucket,
+            dataset_bucket=dataset_bucket,
+            logger=logger
+        )
         return client
     except Exception as e:
         if logger:
             logger.warning(f"S3 sync unavailable: {e}. Running without remote backup.")
-            
+
         return None

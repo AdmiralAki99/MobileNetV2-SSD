@@ -65,11 +65,34 @@ def upload_training_artifacts(s3_client: Any, log_directory: Path, run_root: Pat
         s3_key = str(relative_path).replace("\\", "/")
         s3_client.upload_file(local_file=checkpoint_metadata, s3_key=s3_key)
 
+def upload_final_artifacts(s3_client: Any, log_directory: Path, run_root: Path):
+    # s3_client: S3SyncClient instance configured for artifact bucket
+    # log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
+    # run_root: Path to run root directory (e.g., runs/)
+    if s3_client is None:
+        return
+
+    # Upload weights directory
+    weights_dir = log_directory / "weights"
+    if weights_dir.exists():
+        for weight_file in weights_dir.glob("*"):
+            if weight_file.is_file():
+                relative_path = weight_file.relative_to(run_root.parent)
+                s3_key = str(relative_path).replace("\\", "/")
+                s3_client.upload_file(local_file=weight_file, s3_key=s3_key)
+
+    # Upload training summary
+    summary_file = log_directory.parent / "training_summary.json"
+    if summary_file.exists():
+        relative_path = summary_file.relative_to(run_root.parent)
+        s3_key = str(relative_path).replace("\\", "/")
+        s3_client.upload_file(local_file=summary_file, s3_key=s3_key)
+
 def download_checkpoint_from_s3(s3_client: Any, s3_checkpoint_prefix: str):
     # s3_client: S3SyncClient instance
     # s3_checkpoint_prefix: S3 path to checkpoint directory
     # e.g., "runs/exp001_abc123/logs/20260214_123456/checkpoints/last"
-    
+
     if s3_client is None:
         return None
 

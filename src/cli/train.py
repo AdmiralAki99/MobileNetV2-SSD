@@ -430,7 +430,14 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         
     # Saving the Model weights:
     framework_opts.logger.save_model_weights(framework_opts.model,training_result, framework_opts.config, framework_opts.fingerprint, framework_opts.ema)
-    
+
+    # Upload final artifacts (weights, summary) to S3 artifact bucket
+    if framework_opts.s3_client is not None:
+        run_root = Path(framework_opts.config['run']['root'])
+        log_dir = framework_opts.logger.job_dir
+        framework_opts.s3_client.upload_final_artifacts(log_dir, run_root)
+        framework_opts.logger.success("Final artifacts uploaded to S3 artifact bucket")
+
 def execute_training():
     # Registering a handler
     handler = ShutdownHandler()
