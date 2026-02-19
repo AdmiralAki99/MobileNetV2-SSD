@@ -14,7 +14,7 @@ data:
   # Dataloader settings
   num_workers: 4
   shuffle_buffer: 1000
-  prefetch_batches: 2
+  prefetch_batches: 3
 
   # Input standardization
   standardize:
@@ -71,7 +71,7 @@ data:
       labels: 0
 
     shuffle: false
-    prefetch: false
+    prefetch: true
     max_boxes: 100
     repeat: false
 

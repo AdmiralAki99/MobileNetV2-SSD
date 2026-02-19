@@ -268,7 +268,7 @@ class Logger:
 
     def checkpoint(self, message: str, path: str | Path | None = None, **extra):
         full_message = f"{message} -> {path}" if path else message
-        self._log("checkpoint", message, **extra)
+        self._log("checkpoint", full_message, **extra)
 
     def epoch(self, epoch: int, total: int | None = None, **extra):
         message = f"Epoch {epoch}/{total}" if total else f"Epoch {epoch}"
