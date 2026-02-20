@@ -15,7 +15,7 @@ from mobilenetv2ssd.core.logger import build_logger_from_config, Logger
 from mobilenetv2ssd.core.precision_config import PrecisionConfig
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
 
-from datasets.collate import create_training_dataset, create_validation_dataset
+from datasets.collate import create_training_dataset_from_tfrecords, create_validation_dataset_from_tfrecords, create_training_dataset, create_validation_dataset
 from datasets.transforms import build_train_transforms, build_validation_transforms
 from datasets.base import create_dataset_from_config
 
@@ -223,27 +223,52 @@ def create_datasets(config: dict[str, Any], logger: Logger):
     logger.info(f"Training transforms: {[transform.__class__.__name__ for transform in train_compose._transforms]} {'.'*20}")
     logger.info(f"Validation transforms: {[transform.__class__.__name__ for transform in validation_compose._transforms]} {'.'*20}")
     
-    # Now creating the datasets
-    # Training dataset has to always be created, but validation dataset is optional based on the config
-    training_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
-    logger.info(f"Created {training_dataset.__class__.__name__} training dataset with {len(training_dataset)} samples {'.'*20}")
-    logger.info(f"Train loop has {int(len(training_dataset) / config['data']['train']['batch_size'])} steps{'.'*20}")
+    use_tfrecords = config['data'].get('tfrecords',{}).get('enabled', False)
     
-    if config['eval']['eval_enabled']:
-        validation_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
-        logger.info(f"Created {validation_dataset.__class__.__name__} validation dataset with {len(validation_dataset)} samples {'.'*20}")
-        logger.info(f"Eval loop has {int(len(validation_dataset) / config['data']['val']['batch_size'])} steps{'.'*20}")
-        
-    # Leveraging the tf.data.Dataset API to create the training and validation datasets
-    train_dataset = create_training_dataset(config= config, dataset= training_dataset, transform= train_compose)
+    # Splitting the data ingestion to be the raw data (Slow speed) or TFRecords Shards (GPU Optimized)
+    if not use_tfrecords:
+        # Now creating the datasets
+        # Training dataset has to always be created, but validation dataset is optional based on the config
+        training_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
+        logger.info(f"Created {training_dataset.__class__.__name__} training dataset with {len(training_dataset)} samples {'.'*20}")
+        logger.info(f"Train loop has {int(len(training_dataset) / config['data']['train']['batch_size'])} steps{'.'*20}")
     
-    val_dataset = create_validation_dataset(config= config, dataset= validation_dataset, transform= validation_compose) if config['eval']['eval_enabled'] else None
+        if config['eval']['eval_enabled']:
+            validation_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
+            logger.info(f"Created {validation_dataset.__class__.__name__} validation dataset with {len(validation_dataset)} samples {'.'*20}")
+            logger.info(f"Eval loop has {int(len(validation_dataset) / config['data']['val']['batch_size'])} steps{'.'*20}")
+        
+        # Leveraging the tf.data.Dataset API to create the training and validation datasets
+        train_dataset = create_training_dataset(config= config, dataset= training_dataset, transform= train_compose)
     
-    logger.info(f"Created training dataset with tf.data.Dataset API {'.'*20}")
-    if val_dataset is not None:
-        logger.info(f"Created validation dataset with tf.data.Dataset API {'.'*20}")
+        val_dataset = create_validation_dataset(config= config, dataset= validation_dataset, transform= validation_compose) if config['eval']['eval_enabled'] else None
+    
+        logger.info(f"Created training dataset with tf.data.Dataset API {'.'*20}")
+        if val_dataset is not None:
+            logger.info(f"Created validation dataset with tf.data.Dataset API {'.'*20}")
+    else:
+        train_shard_dir = Path(config['data']['root']) / "shards" / config['data']['train_split']
+        train_shard_paths = [str(path) for path in train_shard_dir.iterdir() if path.is_file()]
         
+        train_dataset = create_training_dataset_from_tfrecords(config= config, shard_paths= train_shard_paths, transform= train_compose)
+        metadata_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
+        logger.info(f"Created {metadata_dataset.__class__.__name__} training dataset with {len(train_shard_paths)} shards {'.'*20}")
+        logger.info(f"Created {metadata_dataset.__class__.__name__} training dataset with {len(metadata_dataset)} samples {'.'*20}")
+        logger.info(f"Train loop has {int(len(metadata_dataset) // config['data']['train']['batch_size'])} steps{'.'*20}")
         
+        if config['eval']['eval_enabled']:
+            val_shard_dir = Path(config['data']['root']) / "shards" / config['data']['val_split']
+            val_shard_paths = [str(path) for path in val_shard_dir.iterdir() if path.is_file()]
+            val_dataset = create_validation_dataset_from_tfrecords(config= config, shard_paths= val_shard_paths, transform= validation_compose)
+            
+            val_metadata_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
+            logger.info(f"Created {val_metadata_dataset.__class__.__name__} validation dataset with {len(val_shard_paths)} shards {'.'*20}")
+            logger.info(f"Created {val_metadata_dataset.__class__.__name__} validation dataset with {len(val_metadata_dataset)} samples {'.'*20}")
+            logger.info(f"Eval loop has {int(len(val_metadata_dataset) // config['data']['val']['batch_size'])} steps{'.'*20}")
+        else:
+            val_dataset = None      
+        
+        logger.info(f"Created training dataset with tf.data.Dataset API {'.'*20}")
     return train_dataset, val_dataset
         
 def create_priors(config: dict[str, Any], logger: Logger):
