@@ -9,9 +9,9 @@ data:
   val_split: val
 
   num_classes: 21
-  classes_file: ${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt
+  classes_file: configs/data/voc_labels.txt
   tfrecords:
-    enabled: true
+    enabled: false
 
   # Dataloader settings
   num_workers: 4
@@ -61,8 +61,8 @@ data:
 
     padded_shapes:
       image: [null, null, 3]
-      boxes: [null, 4]
-      labels: [null]
+      boxes: [100, 4]
+      labels: [100]
       image_id: []
       hash_signature: []
       path: []

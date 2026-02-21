@@ -25,7 +25,7 @@ from training.shutdown import ShutdownHandler
 
 from infrastructure.s3_sync import S3SyncClient
 
-def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
+def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig):
     
     # First get the batch elements from the dataset
     image, boxes, labels, gt_mask = batch['image'], batch['boxes'], batch['labels'], batch['gt_mask']
@@ -57,12 +57,38 @@ def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf
     
     return loss_dict, priors_stats # Checking if the boxes are correctly formatted
 
-def train_one_epoch(config: dict[str, Any], epoch: int, model: tf.keras.Model, train_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, priors_cxcywh: tf.Tensor, precision_config: PrecisionConfig, ema : EMA, amp: AMPContext, logger: Logger, global_step_offset: int = 0, log_every: int = 5, max_steps: int|None = None, shutdown_handler: ShutdownHandler = None):
+def train_one_epoch(config: dict[str, Any], epoch: int, model: tf.keras.Model, train_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, priors_cxcywh: tf.Tensor, precision_config: PrecisionConfig, ema : EMA, amp: AMPContext, logger: Logger, global_step_offset: int = 0, log_every: int = 5, max_steps: int|None = None, backbone_grad_scale: float = 0.1, shutdown_handler: ShutdownHandler = None):
     # TODO: If num_pos is 0 the skip the loc loss and only do a safe cls loss OR skip the update completely
     # Running counter of the loss value
     loss_meter = tf.keras.metrics.Mean(name="loss")
 
     global_step = global_step_offset
+    
+    # Creating the set for backbone variables
+    backbone_var_ids = {id(var) for var in model.backbone.trainable_variables}
+    backbone_mask = tuple(id(var) in backbone_var_ids for var in model.trainable_variables)
+    
+    @tf.function(reduce_retracing= True)
+    def _compiled_step(batch: dict[str, Any]):
+        with tf.GradientTape() as tape:
+            # Using the AMP
+            with amp.autocast():
+                loss_dict, prior_stats = training_step(config = config, model = model, priors_cxcywh = priors_cxcywh, batch = batch, precision_config = precision_config)
+                total_loss = loss_dict['total_loss']
+            
+                # Making sure the optimizer operation is guarded since it can be disabled
+                if isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer):
+                    scaled_loss = optimizer.scale_loss(total_loss)
+                else:
+                    scaled_loss = total_loss
+                
+        gradients = tape.gradient(scaled_loss, model.trainable_variables, unconnected_gradients= tf.UnconnectedGradients.ZERO)
+        
+        scaled_grads = [grad * backbone_grad_scale if is_backbone else grad for grad, is_backbone in zip(gradients, backbone_mask)]
+    
+        optimizer.apply_gradients(zip(scaled_grads,model.trainable_variables))
+    
+        return loss_dict, prior_stats
     
     for step, batch in enumerate(train_dataset):
         # Use Gradient Tape to get the losses
@@ -71,28 +97,12 @@ def train_one_epoch(config: dict[str, Any], epoch: int, model: tf.keras.Model, t
             
             raise GracefulShutdownException(signal_number= signal_number)
             
-        with tf.GradientTape() as tape:
-            with amp.autocast():
-                loss_dict, prior_stats = training_step(config = config, model = model, priors_cxcywh = priors_cxcywh, batch = batch, precision_config = precision_config, logger= logger)
-                total_loss = loss_dict['total_loss']
-
-                # Making sure the optimizer operation is guarded since it can be disabled
-                if isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer):
-                    scaled_loss = optimizer.scale_loss(total_loss)
-                else:
-                    scaled_loss = total_loss
-
-            
-        gradients = tape.gradient(scaled_loss, model.trainable_variables)
-
-        # Only changing the values for the stuff that is not None
-        grads_and_vars = [(g, v) for g, v in zip(gradients, model.trainable_variables) if g is not None]
-        if not grads_and_vars:
-            global_step += 1
-            continue
-
-        optimizer.apply_gradients(grads_and_vars)
-
+        loss_dict, prior_stats = _compiled_step(batch= batch)
+        
+        total_loss = loss_dict['total_loss']    
+        
+        global_step= global_step + 1
+        
         # Updating the EMA based on the predefined conditions
         ema.update(global_step)
 
@@ -116,8 +126,6 @@ def train_one_epoch(config: dict[str, Any], epoch: int, model: tf.keras.Model, t
                 logger.log_scalar(tag= "train/lr", value= optimizer.learning_rate.numpy(), step= global_step)
                 
             logger.flush()
-            
-        global_step += 1
         
         # Safe guard from pushing past a certain limit
         if max_steps is not None and step + 1 >= max_steps:
@@ -127,7 +135,7 @@ def train_one_epoch(config: dict[str, Any], epoch: int, model: tf.keras.Model, t
     
     return loss_meter.result(), global_step_end
 
-def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig, logger: Logger):
+def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig):
     
     image, boxes, labels, gt_mask = batch['image'], batch['boxes'], batch['labels'], batch['gt_mask']
 
@@ -135,8 +143,6 @@ def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf
 
     # Forward pass
     predicted_offsets, predicted_logits = model(image, training = False)
-
-    calculate_model_prediction_health(predicted_logits, predicted_offsets, logger)
 
     # Postprocess
     nmsed_boxes, nmsed_scores, nmsed_classes, decoded_classes, classes, valid_detections = build_decoded_boxes(config = config, predicted_offsets = predicted_offsets, predicted_logits = predicted_logits, priors = priors_cxcywh, precision_config = precision_config)
@@ -161,6 +167,8 @@ def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf
         'pred_boxes': nmsed_boxes,
         'pred_scores': nmsed_scores,
         'pred_classes': nmsed_classes,
+        'predicted_offsets': predicted_offsets,
+        'predicted_logits': predicted_logits,
         'gt_boxes': boxes,
         'gt_labels': labels,
         'gt_mask': gt_mask,
@@ -168,10 +176,13 @@ def evaluate_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf
         'class_labels': classes
     }
 
-# TODO: Add Global Step Offset for continuous tracking
 def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, val_dataset: tf.data.Dataset, metrics_manager: MetricsCollection, precision_config: PrecisionConfig, ema: EMA, logger: Logger = None, max_steps: int| None = None, log_every: int = 1, heavy_log_every: int = 100, eval_step_offset: int = 0, train_step: int = 0, shutdown_handler: ShutdownHandler = None):
     # Reset the metrics manager
     metrics_manager.reset()
+    
+    @tf.function(reduce_retracing= True)
+    def _compiled_eval_step(batch):
+        return evaluate_step(config = config, model = model, priors_cxcywh = priors_cxcywh, batch = batch, precision_config = precision_config)
     
     # Checking if the EMA is up
     with ema.eval_context(model):
@@ -182,7 +193,7 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
             
                 raise GracefulShutdownException(signal_number= signal_number)
             # Evaluating step
-            evaluation_output = evaluate_step(config = config, model = model, priors_cxcywh = priors_cxcywh, batch = batch, precision_config = precision_config, logger = logger)
+            evaluation_output = _compiled_eval_step(batch= batch)
 
             # Compute the metrics
             predictions, ground_truths = convert_batch_images_to_metric_format(pred_boxes = evaluation_output['pred_boxes'], pred_scores = evaluation_output['pred_scores'], pred_labels = evaluation_output['pred_classes'], gt_boxes = evaluation_output['gt_boxes'], gt_labels = evaluation_output['gt_labels'], gt_mask = evaluation_output['gt_mask'], image_ids = batch['image_id'])
@@ -199,6 +210,7 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
                 gt_box_sanity = gt_box_range(evaluation_output['gt_boxes'],  evaluation_output['gt_mask'])
                 pred_health_metrics = calculate_pred_health_metrics(evaluation_output['pred_scores'], evaluation_output['pred_classes'], evaluation_output['valid_detections'])
                 pred_box_sanity = verify_pred_boxes_sanity(evaluation_output['pred_boxes'], evaluation_output['valid_detections'])
+                prediction_health = calculate_model_prediction_health(evaluation_output['predicted_logits'], evaluation_output['predicted_offsets'])
             
                 logger.metric(f"Number of Valid Detections: {evaluation_output['valid_detections']}")
             
@@ -216,6 +228,18 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
             
                 logger.metric(f"Pred Boxes Min Coordinate : {pred_box_sanity['min_coordinates']}")
                 logger.metric(f"Pred Boxes Max Coordinate : {pred_box_sanity['max_coordinates']}")
+                
+                logger.metric(f"Mean background probability: {tf.reduce_mean(prediction_health['background_probs']).numpy()}")
+                logger.metric(f"Max background probability: {tf.reduce_max(prediction_health['background_probs']).numpy()}")
+    
+                logger.metric(f"Mean top foreground probability: {tf.reduce_mean(tf.reduce_max(prediction_health['foreground_probs'], axis=-1)).numpy()}")
+                logger.metric(f"Mean sum foreground probability: {tf.reduce_mean(tf.reduce_sum(prediction_health['foreground_probs'], axis=-1)).numpy()}")
+                logger.metric(f"Max foreground probability: {tf.reduce_max(tf.reduce_sum(prediction_health['foreground_probs'], axis=-1)).numpy()}")
+    
+                logger.metric(f"Predicted Logits mean: {tf.reduce_mean(prediction_health['predicted_logits']).numpy()}")
+                logger.metric(f"Predicted Logits std: {tf.math.reduce_std(prediction_health['predicted_logits']).numpy()}")
+                logger.metric(f"Predicted Logits max: {tf.reduce_max(prediction_health['predicted_logits']).numpy()}")
+                logger.metric(f"Predicted Logits min: {tf.reduce_min(prediction_health['predicted_logits']).numpy()}")
             
             if (step + 1) % log_every == 0:
             

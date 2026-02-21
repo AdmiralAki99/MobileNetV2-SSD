@@ -22,16 +22,16 @@ def ssd_get_prior_stats(positive_mask: tf.Tensor, negative_mask: tf.Tensor):
     number_negative = tf.reduce_sum(negative_prior_per_image)
 
     return{
-        "num_pos": int(number_positive.numpy()),
-        "pos_min": int(tf.reduce_min(positive_prior_per_image).numpy()),
-        "pos_mean": float(tf.reduce_mean(tf.cast(positive_prior_per_image, tf.float32)).numpy()),
-        "pos_max": int(tf.reduce_max(positive_prior_per_image).numpy()),
-        "num_neg": int(number_negative.numpy()),
-        "neg_pos_ratio": float((tf.cast(number_negative, tf.float32) / tf.maximum(tf.cast(number_positive, tf.float32), 1.0)).numpy()),
-        "zero_pos_frac": float(tf.reduce_mean(tf.cast(positive_prior_per_image == 0, tf.float32)).numpy()), 
+        "num_pos": number_positive,
+        "pos_min": tf.reduce_min(positive_prior_per_image),
+        "pos_mean": tf.reduce_mean(tf.cast(positive_prior_per_image, tf.float32)),
+        "pos_max": tf.reduce_max(positive_prior_per_image),
+        "num_neg": number_negative,
+        "neg_pos_ratio": tf.cast(number_negative, tf.float32) / tf.maximum(tf.cast(number_positive, tf.float32), 1.0),
+        "zero_pos_frac": tf.reduce_mean(tf.cast(positive_prior_per_image == 0, tf.float32)), 
     }
     
-def calculate_model_prediction_health(predicted_logits: tf.Tensor, predicted_offsets: tf.Tensor, logger: Logger):
+def calculate_model_prediction_health(predicted_logits: tf.Tensor, predicted_offsets: tf.Tensor):
     
     # Calculating the information on the predicted logits
     probs_correct = tf.nn.softmax(predicted_logits, axis=-1)  # correct (classes)
@@ -41,20 +41,26 @@ def calculate_model_prediction_health(predicted_logits: tf.Tensor, predicted_off
     background_probs = probabilities[..., 0]
     foreground_probs = probabilities[..., 1:]
     
-    logger.metric(f"Sum over classes (Should be 1): {tf.reduce_mean(tf.reduce_sum(probs_correct, axis=-1)).numpy()}")
-    logger.metric(f"Sum over classes (should be 1 only if axis=1 softmax): {tf.reduce_mean(tf.reduce_sum(probs_wrong, axis=1)).numpy()}")
+    # logger.metric(f"Sum over classes (Should be 1): {tf.reduce_mean(tf.reduce_sum(probs_correct, axis=-1)).numpy()}")
+    # logger.metric(f"Sum over classes (should be 1 only if axis=1 softmax): {tf.reduce_mean(tf.reduce_sum(probs_wrong, axis=1)).numpy()}")
     
-    logger.metric(f"Mean background probability: {tf.reduce_mean(background_probs).numpy()}")
-    logger.metric(f"Max background probability: {tf.reduce_max(background_probs).numpy()}")
+    # logger.metric(f"Mean background probability: {tf.reduce_mean(background_probs).numpy()}")
+    # logger.metric(f"Max background probability: {tf.reduce_max(background_probs).numpy()}")
     
-    logger.metric(f"Mean top foreground probability: {tf.reduce_mean(tf.reduce_max(foreground_probs, axis=-1)).numpy()}")
-    logger.metric(f"Mean sum foreground probability: {tf.reduce_mean(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
-    logger.metric(f"Max foreground probability: {tf.reduce_max(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
+    # logger.metric(f"Mean top foreground probability: {tf.reduce_mean(tf.reduce_max(foreground_probs, axis=-1)).numpy()}")
+    # logger.metric(f"Mean sum foreground probability: {tf.reduce_mean(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
+    # logger.metric(f"Max foreground probability: {tf.reduce_max(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
     
-    logger.metric(f"Predicted Logits mean: {tf.reduce_mean(predicted_logits).numpy()}")
-    logger.metric(f"Predicted Logits std: {tf.math.reduce_std(predicted_logits).numpy()}")
-    logger.metric(f"Predicted Logits max: {tf.reduce_max(predicted_logits).numpy()}")
-    logger.metric(f"Predicted Logits min: {tf.reduce_min(predicted_logits).numpy()}")
+    # logger.metric(f"Predicted Logits mean: {tf.reduce_mean(predicted_logits).numpy()}")
+    # logger.metric(f"Predicted Logits std: {tf.math.reduce_std(predicted_logits).numpy()}")
+    # logger.metric(f"Predicted Logits max: {tf.reduce_max(predicted_logits).numpy()}")
+    # logger.metric(f"Predicted Logits min: {tf.reduce_min(predicted_logits).numpy()}")
+    
+    return {
+        'background_probs': background_probs,
+        'foreground_probs': foreground_probs,
+        'predicted_logits': predicted_logits
+    }
     
 def calculate_nms_health_scores(pred_scores: tf.Tensor, valid_detections: tf.Tensor):
     
