@@ -198,7 +198,7 @@ class Logger:
         self._logger = logging.getLogger(f"training.{job_name}.{timestamp}")
         self._logger.setLevel(logging.DEBUG)
         self._logger.handlers.clear()
-        self._logger.propogate = False
+        self._logger.propagate = False
 
         self._console_logging_enabled = console
         if console:

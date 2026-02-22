@@ -14,19 +14,22 @@ class OptimizerFactory:
 
         learning_schedule = learning_schedule if learning_schedule is not None else learning_rate
 
+        grad_clip_norm = config.get('grad_clip_norm')
+        clip_kwargs = {'global_clipnorm': float(grad_clip_norm)} if grad_clip_norm is not None else {}
+
         if name == "sgd":
             momentum = float(config['momentum'])
             nesterov = bool(config['nesterov'])
             weight_decay = float(config['weight_decay'])
-            return tf.keras.optimizers.SGD(learning_rate = learning_schedule , momentum = momentum, nesterov = nesterov, weight_decay= weight_decay, name = name)
-        elif name in ("adam","adamw"):
+            return tf.keras.optimizers.SGD(learning_rate=learning_schedule, momentum=momentum, nesterov=nesterov, weight_decay=weight_decay, name=name, **clip_kwargs)
+        elif name in ("adam", "adamw"):
             beta_1 = float(config['beta1'])
             beta_2 = float(config['beta2'])
             epsilon = float(config['epsilon'])
             if name == "adam":
-                return tf.keras.optimizers.Adam(learning_rate = learning_schedule, beta_1 = beta_1, beta_2 = beta_2, epsilon = epsilon, name = name)
+                return tf.keras.optimizers.Adam(learning_rate=learning_schedule, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon, name=name, **clip_kwargs)
             else:
-                return tf.keras.optimizers.AdamW(learning_rate = learning_schedule, beta_1 = beta_1, beta_2 = beta_2, epsilon = epsilon, weight_decay = weight_decay, name = name)   
+                return tf.keras.optimizers.AdamW(learning_rate=learning_schedule, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon, weight_decay=weight_decay, name=name, **clip_kwargs)
         else:
             raise ValueError(f"Unknown optimizer name: {name}")
                             
@@ -42,5 +45,6 @@ class OptimizerFactory:
             'epsilon': optimizer_opts.get('epsilon', 1e-07),
             'momentum': optimizer_opts.get('momentum', 0.9),
             'nesterov': optimizer_opts.get('nesterov', False),
+            'grad_clip_norm': optimizer_opts.get('grad_clip_norm', None),
         }
         return optimizer_config

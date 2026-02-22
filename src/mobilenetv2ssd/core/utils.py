@@ -41,21 +41,6 @@ def calculate_model_prediction_health(predicted_logits: tf.Tensor, predicted_off
     background_probs = probabilities[..., 0]
     foreground_probs = probabilities[..., 1:]
     
-    # logger.metric(f"Sum over classes (Should be 1): {tf.reduce_mean(tf.reduce_sum(probs_correct, axis=-1)).numpy()}")
-    # logger.metric(f"Sum over classes (should be 1 only if axis=1 softmax): {tf.reduce_mean(tf.reduce_sum(probs_wrong, axis=1)).numpy()}")
-    
-    # logger.metric(f"Mean background probability: {tf.reduce_mean(background_probs).numpy()}")
-    # logger.metric(f"Max background probability: {tf.reduce_max(background_probs).numpy()}")
-    
-    # logger.metric(f"Mean top foreground probability: {tf.reduce_mean(tf.reduce_max(foreground_probs, axis=-1)).numpy()}")
-    # logger.metric(f"Mean sum foreground probability: {tf.reduce_mean(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
-    # logger.metric(f"Max foreground probability: {tf.reduce_max(tf.reduce_sum(foreground_probs, axis=-1)).numpy()}")
-    
-    # logger.metric(f"Predicted Logits mean: {tf.reduce_mean(predicted_logits).numpy()}")
-    # logger.metric(f"Predicted Logits std: {tf.math.reduce_std(predicted_logits).numpy()}")
-    # logger.metric(f"Predicted Logits max: {tf.reduce_max(predicted_logits).numpy()}")
-    # logger.metric(f"Predicted Logits min: {tf.reduce_min(predicted_logits).numpy()}")
-    
     return {
         'background_probs': background_probs,
         'foreground_probs': foreground_probs,
@@ -437,8 +422,20 @@ def inference_function(config: dict[str,Any], dataset_batch: dict[str, Any], mod
     top_k_scores, top_k_indices = tf.math.top_k(pred_scores, k= top_k_per_image, sorted=True)
     top_k_boxes= tf.gather(pred_boxes, top_k_indices)
     top_k_labels= tf.gather(pred_labels, top_k_indices)
-
-    img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= model_prediction['class_labels'])
+    
+    class_labels = model_prediction['class_labels']
+    if hasattr(class_labels, 'numpy'):
+        raw = class_labels.numpy()
+        class_labels = [s.decode('utf-8') if isinstance(s, bytes) else str(s) for s in raw]
+    elif isinstance(class_labels, dict):
+        class_labels = {
+            k: (v.numpy().decode('utf-8') if hasattr(v, 'numpy') and isinstance(v.numpy(), bytes)
+                else str(v.numpy()) if hasattr(v, 'numpy')
+                else v)
+            for k, v in class_labels.items()
+        }
+        
+    img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= class_labels)
     
     logger.log_image("val/inference_image", image= img, step= global_step)
     
