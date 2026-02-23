@@ -14,8 +14,8 @@ run:
 
 logging:
   level: info
-  log_interval_steps: 1
-  val_interval_epochs: 1
+  log_interval_steps: 50
+  val_interval_epochs: 50
 
   console:
     enabled: true

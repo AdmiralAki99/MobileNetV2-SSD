@@ -6,6 +6,17 @@ from datasets.base import BaseDetectionDataset
 from datasets.voc import VOCDataset
 from datasets.transforms import Compose, build_train_transforms
 
+_TFRECORD_FEATURE_DESCRIPTION = {
+    'image/encoded': tf.io.FixedLenFeature([], tf.string),
+    'image/height': tf.io.FixedLenFeature([], tf.int64),
+    'image/width': tf.io.FixedLenFeature([], tf.int64),
+    'image/boxes': tf.io.VarLenFeature(tf.float32),
+    'image/boxes_count': tf.io.FixedLenFeature([], tf.int64),
+    'image/labels': tf.io.VarLenFeature(tf.int64),
+    'image/image_id': tf.io.FixedLenFeature([], tf.string),
+    'image/path': tf.io.FixedLenFeature([], tf.string)
+}
+
 _OUTPUT_SIGNATURE = {
     "image": tf.TensorSpec(shape=(None, None, 3), dtype=tf.float32),
     "boxes": tf.TensorSpec(shape=(None, 4), dtype=tf.float32),
@@ -15,6 +26,36 @@ _OUTPUT_SIGNATURE = {
     "orig_size": tf.TensorSpec(shape=(2,), dtype=tf.int32),
 }
 
+def _parse_tfrecord(proto: tf.Tensor):
+    # This function is mapped over a TFRecordDataset
+    # Need to now match the info to the _OUTPUT_SIGNTURE
+    
+    example = tf.io.parse_single_example(serialized=proto, features= _TFRECORD_FEATURE_DESCRIPTION)
+    # Image Operations
+    image= tf.io.decode_jpeg(example['image/encoded'],channels= 3)
+    image= tf.cast(image, dtype= tf.float32)
+    # Box Operations
+    boxes_count = example['image/boxes_count']
+    boxes = tf.sparse.to_dense(example['image/boxes'])
+    boxes = tf.reshape(boxes,[boxes_count,4])
+    # Labels Operations
+    labels= tf.cast(tf.sparse.to_dense(example['image/labels']),dtype= tf.int32)
+    # Metadata Operations
+    orig_size = tf.cast(tf.stack([example['image/height'],example['image/width']], axis=-1), dtype= tf.int32)
+    path= example['image/path']
+    image_id = example['image/image_id']
+    
+    return {
+        "image": image,
+        "boxes": boxes,
+        "labels": labels,
+        "image_id": image_id,
+        "path": path,
+        "orig_size": orig_size
+    }
+    
+    
+    
 def create_training_dataset_config(config: dict[str, Any]):
     training_dataset_opts = config['data'].get('train', {})
 
@@ -150,4 +191,77 @@ def create_training_dataset(dataset: BaseDetectionDataset, config: dict[str,Any]
         tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
 
     return tf_dataset
+
+
+def create_training_dataset_from_tfrecords(config: dict[str, Any], shard_paths: list[str] | None, transform: Compose):
+    dataset_opts = create_training_dataset_config(config)
+    
+    if shard_paths is None:
+        # Need to resolve it
+        shard_dir = Path(config['data']['root']) / "shards" / config['data']['train_split']
+        shard_paths = [str(path) for path in shard_dir.iterdir() if path.is_file()]
+        
+    tf_dataset = tf.data.TFRecordDataset(filenames= shard_paths, num_parallel_reads= tf.data.AUTOTUNE).map(_parse_tfrecord, num_parallel_calls= tf.data.AUTOTUNE)
+
+    if dataset_opts['shuffle']:
+        buffer_size = 2000 # TODO: Think about a config fallback
+        tf_dataset = tf_dataset.shuffle(buffer_size, reshuffle_each_iteration=True)
+        
+    if dataset_opts['repeat']:
+        tf_dataset = tf_dataset.repeat()
+        
+    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
+    
+    tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
+        'boxes' : tf.constant(-1, tf.float32),
+        'image' : tf.constant(0, tf.float32),
+        'labels' : tf.constant(0, tf.int32),
+        'image_id' : tf.constant('', tf.string),
+        'path' : tf.constant('', tf.string),
+        'orig_size': tf.constant(0, tf.int32)
+    })
+    
+    tf_dataset = tf_dataset.map(_create_gt_mask, num_parallel_calls = tf.data.AUTOTUNE)
+    
+    tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE) # High speed rails so there is no need to stop this if sharding is done
+    
+    return tf_dataset
+
+
+def create_validation_dataset_from_tfrecords(config: dict[str, Any], shard_paths: list[str] | None, transform: Compose):
+    dataset_opts = create_validation_dataset_config(config)
+
+    if shard_paths is None:
+        # Need to resolve it
+        shard_dir = Path(config['data']['root']) / "shards" / config['data']['val_split']
+        shard_paths = [str(path) for path in shard_dir.iterdir() if path.is_file()]
+        
+    tf_dataset = tf.data.TFRecordDataset(filenames= shard_paths, num_parallel_reads= tf.data.AUTOTUNE).map(_parse_tfrecord, num_parallel_calls= tf.data.AUTOTUNE)
+    
+    # Now checking for the options
+    if dataset_opts['shuffle']:
+        buffer_size = 2000
+        tf_dataset = tf_dataset.shuffle(buffer_size, reshuffle_each_iteration=True)
+
+    # Adding the transforms
+    tf_dataset = tf_dataset.map(lambda x: apply_transform(x, transform), num_parallel_calls=tf.data.AUTOTUNE)
+
+    # Padding the batch is crucial for the dataset
+    tf_dataset = tf_dataset.padded_batch(batch_size = dataset_opts['batch_size'], padded_shapes = dataset_opts['padded_shapes'], padding_values = {
+        'boxes' : tf.constant(dataset_opts['padding_values']['boxes'], tf.float32),
+        'image' : tf.constant(dataset_opts['padding_values']['image'], tf.float32),
+        'labels' : tf.constant(dataset_opts['padding_values']['labels'], tf.int32),
+        'image_id' : tf.constant('', tf.string),
+        'path' : tf.constant('', tf.string),
+        'orig_size': tf.constant(0, tf.int32)
+    })
+
+    # Mapping a valid mask function
+    tf_dataset = tf_dataset.map(_create_gt_mask, num_parallel_calls = tf.data.AUTOTUNE)
+
+    # Adding prefetch
+    tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
+    
+    return tf_dataset
+
         

@@ -9,12 +9,14 @@ data:
   val_split: val
 
   num_classes: 21
-  classes_file: ${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt
+  classes_file: configs/data/voc_labels.txt
+  tfrecords:
+    enabled: false
 
   # Dataloader settings
   num_workers: 4
   shuffle_buffer: 1000
-  prefetch_batches: 2
+  prefetch_batches: 3
 
   # Input standardization
   standardize:
@@ -59,8 +61,8 @@ data:
 
     padded_shapes:
       image: [null, null, 3]
-      boxes: [null, 4]
-      labels: [null]
+      boxes: [100, 4]
+      labels: [100]
       image_id: []
       hash_signature: []
       path: []
@@ -71,7 +73,7 @@ data:
       labels: 0
 
     shuffle: false
-    prefetch: false
+    prefetch: true
     max_boxes: 100
     repeat: false
 

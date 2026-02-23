@@ -15,7 +15,7 @@ _ARCHITECTURE_KEYS = ("num_classes", "backbone", "heads", "priors", "input_size"
 _TRAINING_KEYS = ("optimizer", "scheduler", "train", "augmentation", "eval", "sampler", "loss", "matcher")
 
 
-def discover_checkpoint(checkpoint_dir: Path):
+def discover_checkpoint(checkpoint_dir: Path, target_step: int | None = None):
     checkpoint_dir = Path(checkpoint_dir)
 
     if not checkpoint_dir.exists():
@@ -28,18 +28,25 @@ def discover_checkpoint(checkpoint_dir: Path):
     if not checkpoint_dir.exists() or not checkpoint_dir.is_dir():
         return None
 
-    # Scan for .index files and keep the one with the highest step number
+    # Scan for .index files.
+    # Use rglob so callers can pass a parent directory (e.g. a timestamp dir
+    # or a downloaded S3 temp dir) and we'll still find the checkpoint.
+    # If target_step is given, find that exact step; otherwise take the highest.
     best = None  # (step, ckpt_prefix_path)
-    for idx in checkpoint_dir.glob("*.index"):
+    for idx in checkpoint_dir.rglob("*.index"):
         m = _CKPT_INDEX_RE.match(idx.name)
         if not m:
             continue
         step = int(m.group("step"))
+        if target_step is not None and step != target_step:
+            continue
         ckpt_prefix = idx.with_suffix("")  # ".../ckpt-200.index" -> ".../ckpt-200"
         if best is None or step > best[0]:
             best = (step, ckpt_prefix)
 
     if best is None:
+        if target_step is not None:
+            return None  # specific step not found
         return None
 
     step, ckpt_prefix = best

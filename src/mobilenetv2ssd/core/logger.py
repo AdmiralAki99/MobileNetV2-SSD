@@ -198,7 +198,7 @@ class Logger:
         self._logger = logging.getLogger(f"training.{job_name}.{timestamp}")
         self._logger.setLevel(logging.DEBUG)
         self._logger.handlers.clear()
-        self._logger.propogate = False
+        self._logger.propagate = False
 
         self._console_logging_enabled = console
         if console:
@@ -268,7 +268,7 @@ class Logger:
 
     def checkpoint(self, message: str, path: str | Path | None = None, **extra):
         full_message = f"{message} -> {path}" if path else message
-        self._log("checkpoint", message, **extra)
+        self._log("checkpoint", full_message, **extra)
 
     def epoch(self, epoch: int, total: int | None = None, **extra):
         message = f"Epoch {epoch}/{total}" if total else f"Epoch {epoch}"
@@ -441,8 +441,7 @@ class Logger:
             "tensorboard",
             "--logdir", str(target_dir),
             "--port", str(port),
-            "--host", host,
-            "--bind_all"
+            "--host", host
         ]
         
         self.info(f"Starting TensorBoard on port {port}...")

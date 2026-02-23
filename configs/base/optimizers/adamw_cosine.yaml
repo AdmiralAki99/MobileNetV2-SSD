@@ -6,6 +6,7 @@ optimizer:
   betas: [0.9, 0.999]
   epsilon: 1.0e-8
   weight_decay: 0.01        # AdamW uses higher weight decay
+  grad_clip_norm: 10.0      # Global gradient clipping norm (prevents loss spikes)
 
 scheduler:
   name: cosine_warmup

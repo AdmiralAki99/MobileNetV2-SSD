@@ -132,8 +132,9 @@ def match_priors(priors_cxcywh: tf.Tensor, gt_boxes_xyxy: tf.Tensor, gt_labels: 
     # Calculate matching mask
     match_dict = _calculate_matches(iou_matrix,valid_gt_boxes,positive_iou_thresh,negative_iou_thresh,enforce_bipartite = allow_low_qual_matches)
 
-    labels_g = tf.gather(valid_labels,match_dict["assigned_gt_box_index"])
-    boxes_g  = tf.gather(valid_gt_boxes, match_dict["assigned_gt_box_index"])
+    safe_indices = tf.maximum(match_dict["assigned_gt_box_index"], 0)
+    labels_g = tf.gather(valid_labels,safe_indices)
+    boxes_g  = tf.gather(valid_gt_boxes, safe_indices)
 
     zeros_labels = tf.zeros_like(match_dict["assigned_gt_box_index"], dtype=tf.int32)
     zeros_boxes  = tf.zeros([N, 4], dtype=gt_boxes_xyxy.dtype)
