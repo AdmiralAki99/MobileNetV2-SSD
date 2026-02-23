@@ -86,10 +86,10 @@ def parse_args():
     parser.add_argument('--print_config', action='store_true', help='Print the configuration and exit.')
     parser.add_argument('--dry_run', action='store_true', help='Perform a dry run without training.')
     parser.add_argument('--run_from', type=str, default=None, help='Resume directory from user')
-    
+    parser.add_argument('--checkpoint_step', type=int, default=None, help='Specific checkpoint step to resume from. Defaults to the latest.')
+
     args = parser.parse_args()
-        
-    
+
     return {
         'experiment_path': Path(args.experiment_path),
         'config_root': Path(args.config_root),
@@ -99,7 +99,8 @@ def parse_args():
         'local_rank': args.local_rank,
         'print_config': args.print_config,
         'dry_run': args.dry_run,
-        'resume_from': args.run_from
+        'resume_from': args.run_from,
+        'checkpoint_step': args.checkpoint_step,
     }
     
 def initialize_run_settings(args: dict[str, Any]):
@@ -163,27 +164,29 @@ def initialize_run_settings(args: dict[str, Any]):
             from infrastructure.s3_sync import parse_bucket_uri
             _, s3_prefix = parse_bucket_uri(resume_from)
 
-            local_dir = download_checkpoint_from_s3(s3_client, s3_prefix)
+            target_step = args.get('checkpoint_step')
+            local_dir, actual_step = download_checkpoint_from_s3(s3_client, s3_prefix, checkpoint_step=target_step)
             if local_dir is None:
                 print(f"Failed to download checkpoint from {resume_from}")
                 exit(1)
-
-            discovered_ckpt = discover_checkpoint(local_dir)
+            discovered_ckpt = discover_checkpoint(local_dir, target_step=actual_step)
             if discovered_ckpt is None:
-                print(f"No checkpoint found in downloaded files at {local_dir}")
+                step_hint = f" at step {target_step}" if target_step else ""
+                print(f"No checkpoint found{step_hint} in downloaded files at {local_dir}")
                 exit(1)
 
             args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
-            print(f"Checkpoint downloaded to {local_dir}")
+            print(f"Resuming from step {discovered_ckpt['step']} (downloaded to {local_dir})")
         else:
             run_path = Path(resume_from)
 
             # Need to check if it is a directory and if it is a checkpoint path
             if run_path.is_dir():
-                discovered_ckpt = discover_checkpoint(run_path)
+                target_step = args.get('checkpoint_step')
+                discovered_ckpt = discover_checkpoint(run_path, target_step=target_step)
                 if discovered_ckpt is None:
-                    # Then the resume path is wrong its an error
-                    print(f"No checkpoint found in {run_path}")
+                    step_hint = f" at step {target_step}" if target_step else ""
+                    print(f"No checkpoint found{step_hint} in {run_path}")
                     exit(1)
 
                 args['resume_checkpoint_path'] = discovered_ckpt['ckpt_path']
@@ -406,8 +409,6 @@ def initialize_framework(args: dict[str, Any]):
         exit(0)
         
     # Uploading the metadata to S3 for storage
-
-
     
     return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client)
 
@@ -426,6 +427,8 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         start_epoch = restore_state['epoch']
         global_step = restore_state['global_step']
         best_metric = restore_state['best_metric']
+    
+    framework_opts.logger.info(f"Step: {global_step}, Start_epoch: {start_epoch}, Best Metric: {best_metric}")
         
     framework_opts.start_epoch = start_epoch
     framework_opts.global_step = global_step

@@ -144,8 +144,8 @@ class CheckpointManager:
         return {'restored': True, 'epoch': epoch, 'global_step': global_step, 'best_metric': best_metric , 'best_epoch': best_epoch}
 
     def restore_from_directory(self, external_checkpoint_path: Path):
-        # Need to check if the path exists
-        if not external_checkpoint_path.exists():
+        # TF checkpoint prefix (e.g. .../ckpt-5054), not a real file.
+        if not Path(str(external_checkpoint_path) + ".index").exists():
             return {'restored': False, 'epoch': 0, 'global_step': 0, 'best_metric': float("-inf") if self._mode == "max" else float("inf") , 'best_epoch': -1}
     
         # The path exists and now can be parsed

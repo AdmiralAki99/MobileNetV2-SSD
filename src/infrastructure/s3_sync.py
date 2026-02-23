@@ -113,7 +113,19 @@ class S3SyncClient:
             if self._logger:
                 self._logger.warning(f"S3 upload failed: {err}. Checkpoint saved locally only.")
     
-    def download_directory(self, s3_sub_prefix: str, local_dir: Path):
+    def list_keys(self, s3_sub_prefix: str) -> list:
+        full_prefix = f"{self._base_prefix}/{s3_sub_prefix}".strip("/") if self._base_prefix else s3_sub_prefix
+        paginator = self._client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=self._bucket, Prefix=full_prefix)
+        keys = []
+        for page in pages:
+            for obj in page.get('Contents', []):
+                relative_path = obj['Key'][len(full_prefix):].lstrip("/")
+                if relative_path:
+                    keys.append(relative_path)
+        return keys
+
+    def download_directory(self, s3_sub_prefix: str, local_dir: Path, key_filter=None):
 
         try:
             local_dir = Path(local_dir)
@@ -134,6 +146,9 @@ class S3SyncClient:
                     # Get the relative path from the prefix
                     relative_path = s3_key[len(full_prefix):].lstrip("/")
                     if not relative_path:
+                        continue
+
+                    if key_filter and not key_filter(relative_path):
                         continue
 
                     local_file = local_dir / relative_path
