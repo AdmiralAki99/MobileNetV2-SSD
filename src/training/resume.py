@@ -29,8 +29,7 @@ def discover_checkpoint(checkpoint_dir: Path, target_step: int | None = None):
         return None
 
     # Scan for .index files.
-    # Use rglob so callers can pass a parent directory (e.g. a timestamp dir
-    # or a downloaded S3 temp dir) and we'll still find the checkpoint.
+    # Use rglob so callers can pass a parent directory
     # If target_step is given, find that exact step; otherwise take the highest.
     best = None  # (step, ckpt_prefix_path)
     for idx in checkpoint_dir.rglob("*.index"):

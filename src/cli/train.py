@@ -10,7 +10,7 @@ from cli.bundle import TrainingBundle
 
 from mobilenetv2ssd.core.fingerprint import Fingerprinter, Fingerprint
 from mobilenetv2ssd.core.utils import initialize_run_metadata
-from mobilenetv2ssd.core.config import load_config, PROJECT_ROOT
+from mobilenetv2ssd.core.config import load_config, PROJECT_ROOT, _is_path_key
 from mobilenetv2ssd.core.logger import build_logger_from_config, Logger
 from mobilenetv2ssd.core.precision_config import PrecisionConfig
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
@@ -32,8 +32,9 @@ from training.resume import collect_resumable_runs, select_run_interactive, vali
 from training.shutdown import ShutdownHandler
 from training.engine import fit
 
-from infrastructure.s3_sync import build_s3_sync
+from infrastructure.s3_sync import build_s3_sync, parse_bucket_uri, S3SyncClient
 from infrastructure.util import download_checkpoint_from_s3
+from infrastructure.dynamodb_ledger import build_dynamodb_ledger, ExperimentLedger, get_ec2_instance_id
 
 import tensorflow as tf
 
@@ -46,11 +47,18 @@ FINGERPRINT_KEYS = [
 FINGERPRINT_EXCLUDES = {
     'train': {'diagnostics'},
     'eval': {'interval_epochs', 'visualization'},
-    'data': {'loader'},
+    'data': {'loader', 'root', 'classes_file'}
 }
 
 TRAINING_KEYS = ['backbone', 'heads', 'priors', 'loss', 'optimizer', 'scheduler', 
                  'train', 'data', 'augmentation', 'matcher', 'sampler', 'model']
+
+def _strip_path_keys(obj):
+    if isinstance(obj, dict):
+        return {k: _strip_path_keys(v) for k, v in obj.items() if not _is_path_key(k)}
+    if isinstance(obj, list):
+        return [_strip_path_keys(v) for v in obj]
+    return obj
 
 def extract_training_keys(config: dict) -> dict:
     return {k: v for k, v in config.items() if k in TRAINING_KEYS}
@@ -67,7 +75,7 @@ def compute_fingerprint(config: dict[str, Any], git_commit: str | None = None):
         if key in FINGERPRINT_EXCLUDES and isinstance(config[key], dict):
             value = {k: v for k, v in config[key].items() if k not in FINGERPRINT_EXCLUDES[key]}
             
-        fingerprinting_dict[key] = value
+        fingerprinting_dict[key] = _strip_path_keys(value)
         
     if git_commit is not None:
         fingerprinting_dict['git_commit'] = git_commit
@@ -103,6 +111,62 @@ def parse_args():
         'checkpoint_step': args.checkpoint_step,
     }
     
+def handle_experiment_ledger(experiment_ledger: ExperimentLedger, ledger_claimed: bool, experiment_id: str, fingerprint: Fingerprint, logger: Logger, s3_sync_client: S3SyncClient, args: dict[str, Any]):
+    # Handle ledger
+    if experiment_ledger is not None:
+        state = experiment_ledger.get_experiment_state(experiment_id= experiment_id, fingerprint= fingerprint.short)
+        if state is not None:
+            status = state['status']
+            
+            match status:
+                case 'success':
+                    # The experiment has succeded
+                    logger.info(f"Ledger: {experiment_id} already completed. Artifacts: {state.get('artifact_s3_path')}. Exiting.")
+                    sys.exit(0)
+                case 'running':
+                    logger.info(f"Ledger: {experiment_id} already running on {state.get('ec2_instance')}. Exiting.")
+                    sys.exit(0)
+                case 'pending':
+                    # Getting the EC2 instance
+                    instance_id = get_ec2_instance_id()
+                    
+                    # Now checking if the ledger can claim
+                    if not experiment_ledger.claim_experiment(experiment_id= experiment_id, fingerprint= fingerprint.short, timestamp= logger.timestamp, instance_id= instance_id):
+                        logger.info(f"Ledger: lost race to claim {experiment_id}. Exiting.")
+                        sys.exit(0)
+                        
+                    # It is claimed if it did not fail
+                    ledger_claimed = True
+                    logger.info(f"Ledger: claimed {experiment_id}/{fingerprint.short} (was {status})")
+                case 'failed':
+                    # The run failed so attempting to claim the experiment
+                    instance_id = get_ec2_instance_id()
+                    if not experiment_ledger.claim_experiment(experiment_id= experiment_id, fingerprint= fingerprint.short, timestamp= logger.timestamp, instance_id= instance_id):
+                        logger.info(f"Ledger: lost race to claim {experiment_id}. Exiting.")
+                        sys.exit(0)
+                        
+                    # It is claimed if it did not fail
+                    ledger_claimed = True
+                    logger.info(f"Ledger: claimed {experiment_id}/{fingerprint.short} (was {status})")
+                        
+                    s3_path = state.get('checkpoint_s3_path')
+                    if s3_path and not args.get('resume_checkpoint_path') and s3_sync_client:
+                        logger.info(f"Ledger: previous run failed with checkpoint at {s3_path}. Resuming.")
+                        # Resuming if it exists
+                        _, s3_prefix = parse_bucket_uri(s3_path)
+                        local_dir, actual_step = download_checkpoint_from_s3(s3_client= s3_sync_client,s3_checkpoint_prefix= s3_prefix, checkpoint_step= None)
+                        if local_dir:
+                            # Discovering checkpoint
+                            discovered_checkpoint = discover_checkpoint(local_dir, target_step= actual_step)
+                            if discovered_checkpoint:
+                                args['resume_checkpoint_path'] = discovered_checkpoint['ckpt_path']
+                                logger.info(f"Ledger: will resume from step {discovered_checkpoint['step']}")    
+        else:
+            # Logger is None so there is not targeting
+            logger.warning(f"Ledger: no entry for {experiment_id}/{fingerprint.short}. Proceeding without tracking.")
+       
+    return args, ledger_claimed
+    
 def initialize_run_settings(args: dict[str, Any]):
     # TODO: Add stuff for distributed training, setting random seeds, etc.
     experiment_path = args['experiment_path']
@@ -131,6 +195,28 @@ def initialize_run_settings(args: dict[str, Any]):
     
     config = load_config(experiment_path=experiment_path, config_root=config_root)
     
+    # Compute Fingerprint
+    fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
+    
+    # Making the logger
+    logger = build_logger_from_config(config=config, fingerprint= fingerprint)
+    
+    # Logging the initialization settings
+    logger.info(f"Logger Initialized{'.'*20}")
+    logger.info(f"Initialized run with configuration from {experiment_path} {'.'*20}")
+    logger.info(f"Configuration root directory: {config_root} {'.'*20}")
+    logger.info(f"Initialized run with fingerprint: {fingerprint.short} {'.'*20}")
+    
+    # Building the S3 Sync Manager
+    logger.info(f"Creating S3 Sync Client...{'.'*20}")
+    s3_sync_client = build_s3_sync(config= config, logger= logger)
+    logger.success(f"Successfully Created S3 Sync Client")
+    
+    # Creating a ledger
+    experiment_id = config.get('experiment', {}).get('id','exp')
+    experiment_ledger = build_dynamodb_ledger(config= config, logger= logger)
+    ledger_claimed = False    
+    
     if args['resume']:
         runs = collect_resumable_runs(Path(config['run']['root']))
         if runs:
@@ -154,18 +240,17 @@ def initialize_run_settings(args: dict[str, Any]):
         # Check if it's an S3 path - download checkpoint files first
         if resume_from.startswith("s3://"):
             print(f"Downloading checkpoint from S3: {resume_from}")
-            s3_client = build_s3_sync(config)
-            if s3_client is None:
+            if s3_sync_client is None:
                 print("S3 client not configured. Cannot download from S3.")
                 exit(1)
 
             # Extract the S3 prefix (everything after bucket/)
             # e.g., s3://bucket/runs/exp001/logs/.../checkpoints/last -> runs/exp001/logs/.../checkpoints/last
-            from infrastructure.s3_sync import parse_bucket_uri
+
             _, s3_prefix = parse_bucket_uri(resume_from)
 
             target_step = args.get('checkpoint_step')
-            local_dir, actual_step = download_checkpoint_from_s3(s3_client, s3_prefix, checkpoint_step=target_step)
+            local_dir, actual_step = download_checkpoint_from_s3(s3_sync_client, s3_prefix, checkpoint_step=target_step)
             if local_dir is None:
                 print(f"Failed to download checkpoint from {resume_from}")
                 exit(1)
@@ -193,19 +278,10 @@ def initialize_run_settings(args: dict[str, Any]):
             else:
                 args['resume_checkpoint_path'] = run_path
     
-    fingerprint = compute_fingerprint(config, git_commit=args['git_commit'])
-    
     # Formatting the timestamp for logging and metadata
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     
-    # Making the logger
-    logger = build_logger_from_config(config=config, fingerprint= fingerprint)
-    
-    # Logging the initialization settings
-    logger.info(f"Logger Initialized{'.'*20}")
-    logger.info(f"Initialized run with configuration from {experiment_path} {'.'*20}")
-    logger.info(f"Configuration root directory: {config_root} {'.'*20}")
-    logger.info(f"Initialized run with fingerprint: {fingerprint.short} {'.'*20}")
+    args, ledger_claimed = handle_experiment_ledger(experiment_ledger= experiment_ledger, ledger_claimed= ledger_claimed, experiment_id= experiment_id, fingerprint= fingerprint, logger= logger, s3_sync_client= s3_sync_client, args= args)
     
     # Setting up the run metadata
     # Build the run metadata
@@ -213,7 +289,7 @@ def initialize_run_settings(args: dict[str, Any]):
     
     logger.info(f"Initialized run with fingerprint: {fingerprint.short} {'.'*20}")
     
-    return config, logger, fingerprint, timestamp
+    return config, logger, fingerprint, s3_sync_client, experiment_ledger, ledger_claimed
 
 def create_datasets(config: dict[str, Any], logger: Logger):
     
@@ -333,7 +409,7 @@ def create_build_checkpoint_manager(config: dict[str, Any], model: tf.keras.Mode
 
 def initialize_framework(args: dict[str, Any]):
     
-    config, logger, fingerprint, timestamp = initialize_run_settings(args)
+    config, logger, fingerprint, s3_sync_client, experiment_ledger, ledger_claimed = initialize_run_settings(args)
     
     # Now creating the dataset
     logger.info(f"Creating datasets... {'.'*20}")
@@ -384,11 +460,6 @@ def initialize_framework(args: dict[str, Any]):
     checkpoint_manager = create_build_checkpoint_manager(config= config, model= model, logger= logger, ema= ema, optimizer= optimizer, fingerprint= fingerprint)
     logger.success(f"Successfully Created Checkpoint Manager")
     
-    # Building the S3 Sync Manager
-    logger.info(f"Creating S3 Sync Client...{'.'*20}")
-    s3_sync_client = build_s3_sync(config= config, logger= logger)
-    logger.success(f"Successfully Created S3 Sync Client")
-    
     if s3_sync_client is not None:
         # Getting the info for the upload
         experiment_name = config.get('experiment', {}).get('id', 'exp')
@@ -410,7 +481,7 @@ def initialize_framework(args: dict[str, Any]):
         
     # Uploading the metadata to S3 for storage
     
-    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client)
+    return TrainingBundle(logger= logger, fingerprint= fingerprint, run_dir= None, config= config, model= model, priors_cxcywh= priors, train_dataset= train_dataset, val_dataset= val_dataset, optimizer= optimizer, precision_config= precision_config, ema= ema, amp= amp, checkpoint_manager= checkpoint_manager, max_epochs= None, best_metric= None, metrics_manager= metrics_manager, s3_client= s3_sync_client, experiment_ledger= experiment_ledger, ledger_claimed= ledger_claimed)
 
 def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, resume_ckpt_path: Path | None = None):
     if resume_ckpt_path:
@@ -454,7 +525,9 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
                         global_step= global_step,
                         max_epochs= framework_opts.config['train']['epochs'],
                         shutdown_handler= shutdown_handler,
-                        s3_sync= framework_opts.s3_client)
+                        s3_sync= framework_opts.s3_client,
+                        experiment_ledger= framework_opts.experiment_ledger,
+                        fingerprint_short= framework_opts.fingerprint.short)
         
     # Saving the Model weights:
     framework_opts.logger.save_model_weights(framework_opts.model,training_result, framework_opts.config, framework_opts.fingerprint, framework_opts.ema)
@@ -465,6 +538,8 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         log_dir = framework_opts.logger.job_dir
         framework_opts.s3_client.upload_final_artifacts(log_dir, run_root)
         framework_opts.logger.success("Final artifacts uploaded to S3 artifact bucket")
+        
+    return training_result
 
 def execute_training():
     # Registering a handler
@@ -474,6 +549,7 @@ def execute_training():
     framework_opts = None
     args = None
     exit_code = 0
+    training_result = None
     
     try:
         args = parse_args()
@@ -482,7 +558,7 @@ def execute_training():
     
         framework_opts.logger.success(f"Completed the initialization stage for the framework...{'.'*20}")
         resume_path = args.get('resume_checkpoint_path', None)
-        train(framework_opts= framework_opts, shutdown_handler= handler, resume_ckpt_path= resume_path)
+        training_result = train(framework_opts= framework_opts, shutdown_handler= handler, resume_ckpt_path= resume_path)
     except GracefulShutdownException as err:
         exit_code= 128 + err.signal_number
     except Exception as err:
@@ -503,6 +579,28 @@ def execute_training():
 
             with open(status_path, 'w') as file:
                 json.dump({'status': "success" if exit_code == 0 else "failed"}, file)
+                
+            # Now handling the ledger
+            if framework_opts.experiment_ledger is not None and framework_opts.ledger_claimed:
+                # The experiment was claimed and there is a ledger
+                experiment_id = framework_opts.config.get('experiment', {}).get('id','exp')
+                fingerprint_short = framework_opts.fingerprint.short
+                
+                # Getting the state of the experiment once more
+                current_state = framework_opts.experiment_ledger.get_experiment_state(experiment_id= experiment_id, fingerprint= fingerprint_short)
+                checkpoint_s3_path = (current_state or {}).get('checkpoint_s3_path','')
+                total_steps = (current_state or {}).get('total_steps', framework_opts.global_step)
+                # Now checking the exit code
+                if exit_code == 0 and training_result is not None:
+                    # Marking the experiment a success
+                    framework_opts.experiment_ledger.mark_success(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= checkpoint_s3_path, artifact_s3_path= '', best_epoch= 0, total_steps= training_result.get('global_step',0), best_metric= float(training_result.get('best_metric', 0.0)))
+                    
+                    # Logging the experiment a sucess
+                    framework_opts.logger.info(f"Ledger: marked {experiment_id} as success")
+                else:
+                    # The experiment failed so the reason needs to be given
+                    reason = 'spot_preemption' if exit_code >= 128 else 'training_error'
+                    framework_opts.experiment_ledger.mark_failure(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= checkpoint_s3_path, total_steps= total_steps, reason= reason)
 
             if framework_opts.s3_client is not None:
                 # s3_sub_prefix is always relative, derived from actual directory name

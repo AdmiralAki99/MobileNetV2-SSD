@@ -440,3 +440,11 @@ def inference_function(config: dict[str,Any], dataset_batch: dict[str, Any], mod
     logger.log_image("val/inference_image", image= img, step= global_step)
     
     logger.success(f"Logged eval image....{'.'*20}")
+    
+    
+# --- Directory Utilities --- #
+
+def checkpoint_s3_uri(s3_sync, log_dir: Path, run_root: Path):
+    rel = (log_dir.relative_to(run_root.parent) / "checkpoints" / "last").as_posix()
+    parts = [p for p in [s3_sync._checkpoint_prefix, rel] if p]
+    return "s3://" + s3_sync._checkpoint_bucket + "/" + "/".join(parts)

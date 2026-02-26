@@ -26,6 +26,7 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
     - [Parallel experiments with Docker Compose](#parallel-experiments-with-docker-compose)
     - [S3 integration](#s3-integration)
     - [EC2 spot training with Terraform](#ec2-spot-training-with-terraform)
+    - [Experiment Ledger (DynamoDB)](#experiment-ledger-dynamodb)
   - [Testing](#testing)
   - [Notebook-Driven Development](#notebook-driven-development)
   - [Deployment](#deployment)
@@ -96,7 +97,8 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   │   ├── transforms.py       #   Augmentations (photometric, crop, flip)
 │   │   └── collate.py          #   tf.data pipeline creation
 │   ├── infrastructure/         # Cloud utilities
-│   │   └── s3_sync.py          #   S3 checkpoint upload / download
+│   │   ├── s3_sync.py          #   S3 checkpoint upload / download
+│   │   └── dynamodb_ledger.py  #   Atomic experiment state machine
 │   ├── mobilenetv2ssd/
 │   │   ├── core/               # Shared utilities
 │   │   │   ├── config.py       #     Hierarchical config loader
@@ -118,9 +120,18 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │       └── metrics.py          #   VOC mAP @ 0.5
 │
 ├── infrastructure/             # Cloud deployment
-│   ├── main.tf                 #   Terraform: EC2 spot + IAM + S3
+│   ├── main.tf                 #   Terraform: provider + backend
+│   ├── training.tf             #   EC2 spot instance request
+│   ├── iam.tf                  #   IAM role with S3 + DynamoDB permissions
+│   ├── dynamodb.tf             #   DynamoDB table data block (read-only lookup)
+│   ├── schedule.tf             #   null_resource: runs scheduler on apply
+│   ├── variables.tf            #   Input variables
 │   ├── QUICKSTART.md           #   Step-by-step EC2 training guide
 │   └── DOCKER_USAGE.md         #   Docker / docker-compose guide
+│
+├── scripts/
+│   ├── schedule_experiments.py #   Register experiments in DynamoDB ledger
+│   └── create_tfrecords.py     #   Convert VOC dataset to TFRecords
 │
 ├── tests/
 │   ├── unit/                   # 12 unit test modules
@@ -331,6 +342,60 @@ terraform destroy  # stops billing, keeps S3 data
 
 The instance bootstraps automatically: installs NVIDIA toolkit, pulls the Docker image, downloads the dataset from S3, and starts training. See [infrastructure/QUICKSTART.md](infrastructure/QUICKSTART.md) for the full walkthrough.
 
+### Experiment Ledger (DynamoDB)
+
+An atomic experiment tracking table prevents duplicate runs, enables spot preemption recovery, and gives a live view of experiment status across all instances.
+
+**State machine:**
+
+```
+pending ──► running ──► success
+                │
+                └──► failed ──► running   (on next terraform apply)
+```
+
+**Setup:** The DynamoDB table (`ml-experiment-ledger`) is created manually and looked up read-only by Terraform. Primary key is `experiment_id` (e.g. `exp002`), sort key is `fingerprint` (12-char hash of the config).
+
+**Registering experiments:**
+
+```bash
+# Preview what would be registered (no writes)
+python scripts/schedule_experiments.py --dry_run
+
+# Register all enabled experiment YAMLs in configs/experiments/
+python scripts/schedule_experiments.py --table_name ml-experiment-ledger --region us-east-1
+
+# Or: terraform apply automatically runs the scheduler before launching EC2
+# (via null_resource.schedule_experiments in infrastructure/schedule.tf)
+```
+
+**Monitoring:**
+
+```bash
+# Print live table state
+python scripts/schedule_experiments.py --list
+
+# Example output:
+# ID         FINGERPRINT    STATUS     PRIORITY   STEPS    METRIC     INSTANCE
+# ------------------------------------------------------------------------
+# exp002     cf4c2c8c1536   running    200        12400    -          i-0abc123
+# exp001     761101dca987   success    100        72200    0.7341     i-0def456
+```
+
+**Recovering from spot preemption:**
+
+```bash
+# Reset a failed experiment back to pending
+python scripts/schedule_experiments.py --reset_failed exp002
+
+# Then re-apply Terraform — the new instance will resume from the last S3 checkpoint
+terraform apply
+```
+
+**How it links to training:** When `train.py` starts on EC2, it reads `DYNAMODB_EXPERIMENT_TABLE` and `AWS_DEFAULT_REGION` from the environment (injected by `user_data.sh`), looks up the experiment by `(experiment_id, fingerprint)`, and atomically claims it using a conditional write. If the experiment is `failed` and has a `checkpoint_s3_path`, it downloads that checkpoint and resumes automatically. On success or failure, the ledger is updated in the `finally` block with the final state, step count, and best metric.
+
+**Fingerprint stability:** Path keys (`root`, `classes_file`, etc.) are stripped from the config before hashing so that fingerprints are identical regardless of where the config is loaded from (local machine vs. Docker container on EC2).
+
 ---
 
 ## Testing
@@ -398,7 +463,7 @@ The deployment workflow: train on GPU, export to SavedModel, convert to TensorRT
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, and Terraform-integrated scheduling.
 
 **In progress:** Evaluation CLI, deployment export tooling.
 
