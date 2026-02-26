@@ -21,7 +21,7 @@ class ExperimentLedger:
         
         return resp.get('Item')
     
-    def claim_experiment(self, experiment_id: str, fingerprint: str, timestamp, instance_id):
+    def claim_experiment(self, experiment_id: str, fingerprint: str, timestamp: str, instance_id: str):
         try:
             
             self._table.update_item(
@@ -171,7 +171,7 @@ class ExperimentLedger:
                     reset_counter= reset_counter + 1
                 except ClientError as err:
                     if err.response['Error']['Code'] == "ConditionalCheckFailedException":
-                       return
+                       continue
                    
                     raise
                     
@@ -181,7 +181,7 @@ class ExperimentLedger:
 def get_ec2_instance_id():
     # Inside the AWS EC2 instance the id can be got by making a request to a URL
     try:
-        token = urllib.request.Request(url= "http://169.254.169.254/latest/api/token", method="PUT", headers={'X-aws-ec2-metadata-token-ttl-seconds': 21600})
+        token = urllib.request.Request(url= "http://169.254.169.254/latest/api/token", method="PUT", headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'})
         
         with urllib.request.urlopen(token, timeout= 2) as resp:
             resp_token = resp.read().decode()

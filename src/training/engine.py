@@ -15,7 +15,7 @@ from mobilenetv2ssd.models.ssd.orchestration.loss_orch import calculate_final_lo
 from mobilenetv2ssd.models.ssd.orchestration.post_process_orch import build_decoded_boxes
 from mobilenetv2ssd.models.factory import build_ssd_model
 
-from mobilenetv2ssd.core.utils import ssd_get_prior_stats, calculate_model_prediction_health, calculate_nms_health_scores, calculate_gt_health_scores, calculate_pred_health_metrics, verify_pred_boxes_sanity, gt_box_range, calculate_iou_sanity_top1, prediction_box_bad_frac, ground_truth_box_bad_frac, inference_function
+from mobilenetv2ssd.core.utils import ssd_get_prior_stats, calculate_model_prediction_health, calculate_nms_health_scores, calculate_gt_health_scores, calculate_pred_health_metrics, verify_pred_boxes_sanity, gt_box_range, calculate_iou_sanity_top1, prediction_box_bad_frac, ground_truth_box_bad_frac, inference_function, checkpoint_s3_uri
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
 
 from training.amp import AMPContext
@@ -24,6 +24,7 @@ from training.metrics import convert_batch_images_to_metric_format, MetricsColle
 from training.shutdown import ShutdownHandler
 
 from infrastructure.s3_sync import S3SyncClient
+from infrastructure.dynamodb_ledger import ExperimentLedger
 
 def training_step(config: dict[str,Any],model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig):
     
@@ -314,7 +315,7 @@ def evaluate(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Te
     
     return metrics_manager.compute(), eval_step_offset + step + 1    
 
-def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None, s3_sync: S3SyncClient = None):
+def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, train_dataset: tf.data.Dataset, validation_dataset: tf.data.Dataset, optimizer: tf.keras.optimizers.Optimizer, precision_config: PrecisionConfig, metrics_manager: MetricsCollection, logger: Logger, checkpoint_manager: CheckpointManager, ema: EMA, amp: AMPContext, start_epoch: int = 0, global_step: int = 0, max_epochs: int | None = None, best_metric: float | None = None, shutdown_handler: ShutdownHandler = None, s3_sync: S3SyncClient = None, experiment_ledger: ExperimentLedger = None, fingerprint_short: str = None):
     # Initialize overarching variables
     # 1. Epoch, 2. eval_every, 3. log_every, 4. heavy_log_every, 5. save_every, 6. save_best, 7. best_metric, 8. global_step
     epochs = max_epochs if max_epochs is not None else int(config['train']['epochs'])
@@ -376,6 +377,11 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                             run_root = Path(config['run']['root'])
                             log_dir = checkpoint_manager.log_directory
                             s3_sync.upload_training_artifacts(log_dir, run_root)
+                            experiment_id = config.get('experiment',{}).get('id','exp')
+                            if experiment_ledger is not None and fingerprint_short:
+                                s3_chekpoint_uri = checkpoint_s3_uri(s3_sync= s3_sync, log_dir= log_dir, run_root= run_root)
+                                experiment_ledger.update_checkpoint_pointer(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= s3_chekpoint_uri, step= global_step)
+                            
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
@@ -386,6 +392,11 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                     run_root = Path(config['run']['root'])
                     log_dir = checkpoint_manager.log_directory
                     s3_sync.upload_training_artifacts(log_dir, run_root)
+                    
+                    experiment_id = config.get('experiment',{}).get('id','exp')
+                    if experiment_ledger is not None and fingerprint_short:
+                        s3_chekpoint_uri = checkpoint_s3_uri(s3_sync= s3_sync, log_dir= log_dir, run_root= run_root)
+                        experiment_ledger.update_checkpoint_pointer(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= s3_chekpoint_uri, step= global_step)
                 
 
             # Logging the end of the model
@@ -402,6 +413,11 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                 log_dir = checkpoint_manager.log_directory
                 s3_sync.upload_training_artifacts(log_dir, run_root)
                 logger.info(f"Emergency training artifacts uploaded to S3")
+                
+                experiment_id = config.get('experiment',{}).get('id','exp')
+                if experiment_ledger is not None and fingerprint_short:
+                    s3_chekpoint_uri = checkpoint_s3_uri(s3_sync= s3_sync, log_dir= log_dir, run_root= run_root)
+                    experiment_ledger.update_checkpoint_pointer(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= s3_chekpoint_uri, step= global_step)
 
         raise  # Raising it again so it propagates to the top
 

@@ -188,6 +188,8 @@ class Logger:
         self.job_name = job_name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        self.timestamp = timestamp
+        
         self.job_dir = Path(log_dir) / timestamp
         self.job_dir.mkdir(parents = True, exist_ok = True)
         
