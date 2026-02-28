@@ -30,6 +30,9 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
   - [Testing](#testing)
   - [Notebook-Driven Development](#notebook-driven-development)
   - [Deployment](#deployment)
+    - [Export pipeline](#export-pipeline)
+    - [Inference](#inference)
+    - [Deploy config reference](#deploy-config-reference)
   - [Project Status](#project-status)
 
 ---
@@ -91,7 +94,14 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │
 ├── src/
 │   ├── cli/                    # Entry points
-│   │   └── train.py            #   Main training CLI
+│   │   ├── train.py            #   Main training CLI
+│   │   └── inference.py        #   SavedModel inference (image / webcam)
+│   ├── deploy/                 # Export and deployment utilities
+│   │   ├── __init__.py         #   load_deploy_config() shared loader
+│   │   └── export/
+│   │       ├── export.py       #     Checkpoint → SavedModel (with serve wrapper)
+│   │       ├── convert.py      #     SavedModel → ONNX (tf2onnx)
+│   │       └── validate.py     #     ONNX shape + dtype validation
 │   ├── datasets/               # Data loading and transforms
 │   │   ├── voc.py              #   PASCAL VOC 2012 parser
 │   │   ├── transforms.py       #   Augmentations (photometric, crop, flip)
@@ -131,7 +141,9 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │
 ├── scripts/
 │   ├── schedule_experiments.py #   Register experiments in DynamoDB ledger
-│   └── create_tfrecords.py     #   Convert VOC dataset to TFRecords
+│   ├── create_tfrecords.py     #   Convert VOC dataset to TFRecords
+│   ├── export_model.py         #   One-off: S3 checkpoint → SavedModel export
+│   └── onnx_inference.py       #   One-off: ONNX model inference check
 │
 ├── tests/
 │   ├── unit/                   # 12 unit test modules
@@ -334,7 +346,7 @@ The `infrastructure/` directory contains Terraform configs for launching GPU spo
 cd infrastructure/
 terraform init
 terraform plan     # preview (no cost)
-terraform apply    # launches g5.xlarge (~$0.16/hr spot)
+terraform apply    # launches g4dn.2xlarge on-demand (~$0.75/hr)
 
 # When done:
 terraform destroy  # stops billing, keeps S3 data
@@ -438,24 +450,88 @@ Every component was implemented and validated in a Jupyter notebook before being
 
 ## Deployment
 
-Edge deployment configs target NVIDIA Jetson with TensorRT:
+A single deploy config (`configs/deploy/mobilenetv2_ssd_voc_jetson.yaml`) drives the entire export and inference pipeline — no hardcoded paths or thresholds.
+
+### Export pipeline
+
+Two virtual environments are required (TF ops and ONNX conversion conflict):
+
+```
+tf-gpu venv          onnx-export venv
+─────────────        ────────────────────────────
+export.py        →   convert.py  →  validate.py
+(checkpoint           (SavedModel     (ONNX shape
+ → SavedModel)         → ONNX)        assertion → PASS)
+```
+
+```bash
+# 1. Export SavedModel from checkpoint (tf-gpu venv)
+PYTHONPATH=src python src/deploy/export/export.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --checkpoint path/to/ckpt
+# → exported_model/saved_model/
+# → exported_model/priors_cxcywh.npy
+
+# 2. Convert to ONNX (onnx-export venv)
+PYTHONPATH=src python src/deploy/export/convert.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml
+# → exported_model/model.onnx
+
+# 3. Validate ONNX output shapes (onnx-export venv)
+PYTHONPATH=src python src/deploy/export/validate.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml
+# → PASS
+```
+
+The SavedModel serve wrapper bakes in normalization (mean/std), box decoding (cxcywh → xyxy), and softmax — so the ONNX model takes raw `[0, 1]` float32 images and outputs decoded boxes and class scores directly.
+
+**ONNX outputs:**
+
+| Tensor | Shape | Description |
+|--------|-------|-------------|
+| `boxes` | `(B, 13502, 4)` | xyxy normalized |
+| `scores` | `(B, 13502, 21)` | softmax class probabilities |
+
+### Inference
+
+```bash
+# Image inference (tf-gpu venv)
+PYTHONPATH=src python src/cli/inference.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --image path/to/image.jpg
+
+# Directory of images
+PYTHONPATH=src python src/cli/inference.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --image datasets/VOCdevkit/VOC2012/JPEGImages/
+
+# Live webcam (index or MJPEG URL)
+PYTHONPATH=src python src/cli/inference.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --webcam --camera 0
+
+# One-off ONNX check (onnx-export venv)
+PYTHONPATH=src python scripts/onnx_inference.py
+```
+
+Annotated outputs are saved to `inference_out/` by default.
+
+### Deploy config reference
 
 ```yaml
 # configs/deploy/mobilenetv2_ssd_voc_jetson.yaml
 deploy:
   input:
     size: [300, 300, 3]
-    format: NCHW
   post_processing:
-    score_threshold: 0.3
+    score_threshold: 0.35
     nms_iou_threshold: 0.5
-    max_detections: 3
+    max_detections: 20
   runtime:
     precision: FP16
     batch_size: 1
+    opset: 17
 ```
-
-The deployment workflow: train on GPU, export to SavedModel, convert to TensorRT engine, deploy with the preprocessing/postprocessing config above.
 
 ---
 
@@ -463,8 +539,6 @@ The deployment workflow: train on GPU, export to SavedModel, convert to TensorRT
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, and Terraform-integrated scheduling.
-
-**In progress:** Evaluation CLI, deployment export tooling.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, and image/webcam inference CLI.
 
 **Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration.
