@@ -14,32 +14,35 @@ from mobilenetv2ssd.models.factory import build_ssd_model
 from training.ema import build_ema
 from deploy import load_deploy_config
 
-_LOCAL_CHKPT_PATH = Path("/mnt/d/dev/MobileNetV2-SSD/exported_model/checkpoint")
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Export a MobileNetV2 SSD model.")
     parser.add_argument('--deploy_config', type=str, required=True, help='Path to the deployment configuration file.')
-    parser.add_argument('--checkpoint', type=str, required=True, help='Checkpoint to load the model.')
+    parser.add_argument('--checkpoint', type=str, required=True, help='Checkpoint directory (local path or s3:// URI).')
+    parser.add_argument('--output_dir', type=str, default=None, help='Directory to write saved_model/ and priors_cxcywh.npy. Overrides deploy config paths.')
     parser.add_argument('--print_config', action='store_true', help='Print the deployment config.')
-    
+
     # Creating the args dictionary
     args = parser.parse_args()
-    
+
     return {
         'deploy_config': Path(args.deploy_config),
         'checkpoint': args.checkpoint,
+        'output_dir': Path(args.output_dir) if args.output_dir else None,
         'print_config': args.print_config,
     }
     
     
 def download_checkpoint(checkpoint_path: str):
     if checkpoint_path.startswith("s3://"):
-        # This is a s3 path so it needs to be downloaded into temp folder (volatile)
-        local_path = _LOCAL_CHKPT_PATH
-        local_path.mkdir(parents= True, exist_ok= True)
-        subprocess.run(["aws","s3","sync", checkpoint_path, str(local_path)],check= True)
+        # Need to download the checkpoint from S3 to a local path
+        s3_relative = checkpoint_path.split("://", 1)[1]          # bucket/runs/...
+        s3_relative = s3_relative.split("/", 1)[1]                 # runs/...
+        local_path = PROJECT_ROOT / "checkpoints" / "s3" / s3_relative.strip("/")
+        local_path.mkdir(parents=True, exist_ok=True)
+        aws_bin = str(Path(sys.executable).parent / "aws")
+        subprocess.run([aws_bin, "s3", "sync", checkpoint_path, str(local_path)], check=True)
         return local_path
-    
+
     return Path(checkpoint_path) # If it is local there is no need for any downloading
 
 def build_serve_model(model: tf.keras.Model, priors_np: np.ndarray, deploy_config: dict[str, Any]):
@@ -105,6 +108,9 @@ def execute_export():
     # The entire export pipeline so that an ONNX model can be created
     try:
         args= parse_args()
+
+        for gpu in tf.config.list_physical_devices('GPU'):
+            tf.config.experimental.set_memory_growth(gpu, True)
         
         deploy_config = load_deploy_config(args['deploy_config'])
         
@@ -141,17 +147,20 @@ def execute_export():
         chkpt.restore(restore_path).expect_partial()
         
         # Saving the model
-        model_save_path = PROJECT_ROOT / deploy_config['deploy']['saved_model_path']
+        if args['output_dir']:
+            model_save_path = args['output_dir'] / "saved_model"
+        else:
+            model_save_path = PROJECT_ROOT / deploy_config['deploy']['saved_model_path']
         model_save_path.mkdir(parents= True, exist_ok= True)
-        
+
         # Building the model with the stuff baked in
         serve = build_serve_model(model= model, priors_np= priors.numpy(), deploy_config= deploy_config)
-        
+
         # Now loading in those weights
         with ema.eval_context(model= model):
             # Saving the mdoel
             tf.saved_model.save(model, export_dir= str(model_save_path), signatures= {"serving_default": serve})
-            
+
         # Saving the priors too
         priors_path = model_save_path.parent / "priors_cxcywh.npy"
         np.save(str(priors_path), priors.numpy())

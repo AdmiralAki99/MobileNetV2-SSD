@@ -33,6 +33,7 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
     - [Export pipeline](#export-pipeline)
     - [Inference](#inference)
     - [Deploy config reference](#deploy-config-reference)
+  - [Results](#results)
   - [Project Status](#project-status)
 
 ---
@@ -95,13 +96,15 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 ├── src/
 │   ├── cli/                    # Entry points
 │   │   ├── train.py            #   Main training CLI
-│   │   └── inference.py        #   SavedModel inference (image / webcam)
+│   │   ├── inference.py        #   SavedModel inference (image / webcam)
+│   │   └── onnx_inference.py   #   ONNX inference — fp32 or int8 (image / webcam)
 │   ├── deploy/                 # Export and deployment utilities
 │   │   ├── __init__.py         #   load_deploy_config() shared loader
 │   │   └── export/
 │   │       ├── export.py       #     Checkpoint → SavedModel (with serve wrapper)
 │   │       ├── convert.py      #     SavedModel → ONNX (tf2onnx)
-│   │       └── validate.py     #     ONNX shape + dtype validation
+│   │       ├── validate.py     #     ONNX shape + dtype validation
+│   │       └── quantize.py     #     ONNX → INT8 QDQ (static calibration for TensorRT)
 │   ├── datasets/               # Data loading and transforms
 │   │   ├── voc.py              #   PASCAL VOC 2012 parser
 │   │   ├── transforms.py       #   Augmentations (photometric, crop, flip)
@@ -176,6 +179,9 @@ pip install -e ".[dev]"
 
 # With cloud support (boto3 for S3)
 pip install -e ".[cloud]"
+
+# With ONNX export tools (convert, validate, quantize)
+pip install -e ".[onnx-export]"
 ```
 
 ### Quick Training Run
@@ -458,10 +464,11 @@ Two virtual environments are required (TF ops and ONNX conversion conflict):
 
 ```
 tf-gpu venv          onnx-export venv
-─────────────        ────────────────────────────
-export.py        →   convert.py  →  validate.py
-(checkpoint           (SavedModel     (ONNX shape
- → SavedModel)         → ONNX)        assertion → PASS)
+─────────────        ──────────────────────────────────────────────────────
+export.py        →   convert.py  →  validate.py  →  quantize.py
+(checkpoint           (SavedModel     (ONNX shape      (INT8 QDQ calibration
+ → SavedModel)         → ONNX)        assertion          → model_int8.onnx)
+                                       → PASS)
 ```
 
 ```bash
@@ -481,6 +488,12 @@ PYTHONPATH=src python src/deploy/export/convert.py \
 PYTHONPATH=src python src/deploy/export/validate.py \
   --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml
 # → PASS
+
+# 4. Quantize to INT8 (onnx-export venv)
+PYTHONPATH=src python src/deploy/export/quantize.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --calibration_images datasets/VOCdevkit/VOC2012/JPEGImages/
+# → exported_model/model_int8.onnx
 ```
 
 The SavedModel serve wrapper bakes in normalization (mean/std), box decoding (cxcywh → xyxy), and softmax — so the ONNX model takes raw `[0, 1]` float32 images and outputs decoded boxes and class scores directly.
@@ -535,10 +548,24 @@ deploy:
 
 ---
 
+## Results
+
+### Example detections — Pascal VOC (SavedModel, score threshold 0.35)
+
+![Demo inference](assets/demo_inference.jpg)
+
+*Cyclists detected in a cluttered scene: 6 × person, 1 × bicycle, 1 × motorbike — all at high confidence.*
+
+### Metrics
+
+*Coming soon.*
+
+---
+
 ## Project Status
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, and image/webcam inference CLI.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), and image/webcam inference CLI.
 
 **Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration.

@@ -34,6 +34,8 @@ def parse_args():
                         help='Camera source: device index (default 0) or HTTP stream URL '
                              '(e.g. http://192.168.x.x:8080/live for IP Camera Lite).')
     parser.add_argument('--output_dir', type=str, default='inference_out/', help='Directory to save annotated images (image mode only).')
+    parser.add_argument('--model_dir', type=str, default=None,
+                        help='Export directory containing saved_model/. Overrides deploy config path.')
 
     args = parser.parse_args()
 
@@ -47,6 +49,7 @@ def parse_args():
         'webcam': args.webcam,
         'camera': camera_source,
         'output_dir': Path(args.output_dir),
+        'model_dir': Path(args.model_dir) if args.model_dir else None,
     }
 
 
@@ -209,7 +212,10 @@ def execute_inference():
 
         deploy_config = load_deploy_config(args['deploy_config'])
         H, W = deploy_config['deploy']['input']['size'][:2]
-        saved_model_path = PROJECT_ROOT / deploy_config['deploy']['saved_model_path']
+        if args['model_dir']:
+            saved_model_path = args['model_dir'] / "saved_model"
+        else:
+            saved_model_path = PROJECT_ROOT / deploy_config['deploy']['saved_model_path']
 
         model = tf.saved_model.load(str(saved_model_path))
         infer = model.signatures["serving_default"]

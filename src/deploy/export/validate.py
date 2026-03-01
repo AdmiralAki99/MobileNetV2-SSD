@@ -13,13 +13,15 @@ from mobilenetv2ssd.core.config import PROJECT_ROOT
 def parse_args():
     parser = argparse.ArgumentParser(description="Validate a MobileNetV2 SSD ONNX model.")
     parser.add_argument('--deploy_config', type=str, required=True, help='Path to the deployment configuration file.')
+    parser.add_argument('--output_dir', type=str, default=None, help='Directory containing model.onnx. Overrides deploy config path.')
     parser.add_argument('--print_config', action='store_true', help='Print the deployment config.')
-    
+
     # Creating the args dictionary
     args = parser.parse_args()
-    
+
     return {
         'deploy_config': Path(args.deploy_config),
+        'output_dir': Path(args.output_dir) if args.output_dir else None,
         'print_config': args.print_config,
     }
     
@@ -71,7 +73,10 @@ def execute_validate():
             return 0
     
         # Resolving the ONNX path
-        onnx_path = PROJECT_ROOT / deploy_config['deploy']['onnx_path']
+        if args['output_dir']:
+            onnx_path = args['output_dir'] / "model.onnx"
+        else:
+            onnx_path = PROJECT_ROOT / deploy_config['deploy']['onnx_path']
     
         # Calling the validate function
         validate_onnx(onnx_path= onnx_path, deploy_config= deploy_config)
