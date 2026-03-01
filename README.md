@@ -34,6 +34,8 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
     - [Inference](#inference)
     - [Deploy config reference](#deploy-config-reference)
   - [Results](#results)
+    - [Example detections — Pascal VOC (SavedModel)](#example-detections--pascal-voc-savedmodel)
+    - [Metrics](#metrics)
   - [Project Status](#project-status)
 
 ---
@@ -143,10 +145,11 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   └── DOCKER_USAGE.md         #   Docker / docker-compose guide
 │
 ├── scripts/
+│   ├── export_pipeline.sh      #   Full export pipeline: checkpoint → SavedModel → ONNX → INT8 (S3 or local)
+│   ├── compare_inference.sh    #   Run SavedModel / FP32 / INT8 on the same images and diff results
 │   ├── schedule_experiments.py #   Register experiments in DynamoDB ledger
 │   ├── create_tfrecords.py     #   Convert VOC dataset to TFRecords
-│   ├── export_model.py         #   One-off: S3 checkpoint → SavedModel export
-│   └── onnx_inference.py       #   One-off: ONNX model inference check
+│   └── export_model.py         #   One-off: S3 checkpoint → SavedModel export
 │
 ├── tests/
 │   ├── unit/                   # 12 unit test modules
@@ -460,7 +463,14 @@ A single deploy config (`configs/deploy/mobilenetv2_ssd_voc_jetson.yaml`) drives
 
 ### Export pipeline
 
-Two virtual environments are required (TF ops and ONNX conversion conflict):
+Two virtual environments are required (TF ops and ONNX conversion conflict). Run all four steps at once with the pipeline script, or step through them manually:
+
+```bash
+# Full pipeline in one command — local or S3 checkpoint, outputs organized by experiment ID
+./scripts/export_pipeline.sh --checkpoint path/to/ckpt
+./scripts/export_pipeline.sh --checkpoint s3://bucket/runs/exp002_abc/logs/.../checkpoints/best/
+# → exported_model/runs/<exp>/.../checkpoints/best/{saved_model/, model.onnx, model_int8.onnx}
+```
 
 ```
 tf-gpu venv          onnx-export venv
@@ -523,8 +533,17 @@ PYTHONPATH=src python src/cli/inference.py \
   --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
   --webcam --camera 0
 
-# One-off ONNX check (onnx-export venv)
-PYTHONPATH=src python scripts/onnx_inference.py
+# ONNX inference — fp32 or int8 (onnx-export venv)
+PYTHONPATH=src python src/cli/onnx_inference.py \
+  --deploy_config configs/deploy/mobilenetv2_ssd_voc_jetson.yaml \
+  --model fp32 \
+  --image path/to/image.jpg
+
+# Compare all three model variants on the same image(s)
+./scripts/compare_inference.sh \
+  --exp exp002_a941d059bed5 \
+  --image path/to/image.jpg
+# → inference_out/<exp>/{savedmodel,fp32,int8}/
 ```
 
 Annotated outputs are saved to `inference_out/` by default.
@@ -550,7 +569,7 @@ deploy:
 
 ## Results
 
-### Example detections — Pascal VOC (SavedModel, score threshold 0.35)
+### Example detections — Pascal VOC (SavedModel)
 
 ![Demo inference](assets/demo_inference.jpg)
 
