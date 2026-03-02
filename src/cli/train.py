@@ -602,6 +602,9 @@ def execute_training():
                     reason = 'spot_preemption' if exit_code >= 128 else 'training_error'
                     framework_opts.experiment_ledger.mark_failure(experiment_id= experiment_id, fingerprint= fingerprint_short, checkpoint_s3_path= checkpoint_s3_path, total_steps= total_steps, reason= reason)
 
+            # Write metric_history.json to disk before S3 upload
+            framework_opts.logger.save_metric_history()
+
             if framework_opts.s3_client is not None:
                 # s3_sub_prefix is always relative, derived from actual directory name
                 run_root_name = run_root.name
