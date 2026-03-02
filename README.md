@@ -577,7 +577,11 @@ deploy:
 
 ### Metrics
 
-*Coming soon.*
+| Model | Dataset | Epochs | mAP@0.5 |
+|-------|---------|--------|---------|
+| MobileNetV2-SSD | Pascal VOC 2012 | 200 | **76.6%** |
+
+Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
 
 ---
 

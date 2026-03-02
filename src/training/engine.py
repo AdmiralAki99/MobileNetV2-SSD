@@ -376,6 +376,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                         if result['is_best'] and s3_sync:
                             run_root = Path(config['run']['root'])
                             log_dir = checkpoint_manager.log_directory
+                            logger.save_metric_history()
                             s3_sync.upload_training_artifacts(log_dir, run_root)
                             experiment_id = config.get('experiment',{}).get('id','exp')
                             if experiment_ledger is not None and fingerprint_short:
@@ -391,6 +392,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
                 if save_path and s3_sync:
                     run_root = Path(config['run']['root'])
                     log_dir = checkpoint_manager.log_directory
+                    logger.save_metric_history()
                     s3_sync.upload_training_artifacts(log_dir, run_root)
                     
                     experiment_id = config.get('experiment',{}).get('id','exp')
@@ -411,6 +413,7 @@ def fit(config: dict[str,Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, 
             if save_path and s3_sync is not None:
                 run_root = Path(config['run']['root'])
                 log_dir = checkpoint_manager.log_directory
+                logger.save_metric_history()
                 s3_sync.upload_training_artifacts(log_dir, run_root)
                 logger.info(f"Emergency training artifacts uploaded to S3")
                 
