@@ -110,6 +110,10 @@ class BaseDetectionDataset(ABC):
     def _load_sample(self, index: int):
         raise NotImplementedError
 
+    @abstractmethod
+    def iter_annotations(self) -> Iterator[tuple[np.ndarray, tuple[int, int]]]:
+        raise NotImplementedError
+
     def _clean_boxes(self, sample: DetectionSample):
 
         boxes = sample.boxes
