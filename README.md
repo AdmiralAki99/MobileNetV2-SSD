@@ -1,6 +1,6 @@
-> End-to-end object detection training and deployment system with reproducible experiments and cloud-scale infrastructure.
-
 # MobileNetV2-SSD
+
+> End-to-end object detection training and deployment system with reproducible experiments and cloud-scale infrastructure.
 
 End-to-end object detection system built from scratch, combining a MobileNetV2 backbone with an SSD head for training, evaluation, and deployment on embedded and cloud platforms.
 
@@ -21,7 +21,7 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
 
 ![Demo inference](assets/demo_inference.jpg)
 
-*Example detection output showing multiple cyclists with overlapping objects, demonstrating robust multi-object detection in cluttered scenes.*
+*Detection output showing multiple cyclists with overlapping objects, demonstrating robust multi-object detection in cluttered scenes.*
 
 ### Metrics
 
