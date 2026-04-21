@@ -1,8 +1,37 @@
+> End-to-end object detection training and deployment system with reproducible experiments and cloud-scale infrastructure.
+
 # MobileNetV2-SSD
 
-Edge-oriented object detection pipeline built from first principles. Combines a MobileNetV2 backbone with an SSD (Single Shot MultiBox Detector) head for real-time inference on embedded hardware such as NVIDIA Jetson and Hailo.
+End-to-end object detection system built from scratch, combining a MobileNetV2 backbone with an SSD head for training, evaluation, and deployment on embedded and cloud platforms.
 
 Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible, configuration-driven experimentation.
+
+## What This Project Demonstrates
+
+- Built end-to-end ML system: data ingestion, training, evaluation, and deployment
+- Designed distributed experimentation platform on AWS with Docker and Terraform
+- Implemented reproducible ML workflows with configuration-driven experiments and fingerprinting
+- Optimized training and deployment for real-world use, including ONNX export and INT8 quantization
+
+---
+
+## Results
+
+### Example detections — Pascal VOC (SavedModel)
+
+![Demo inference](assets/demo_inference.jpg)
+
+*Example detection output showing multiple cyclists with overlapping objects, demonstrating robust multi-object detection in cluttered scenes.*
+
+### Metrics
+
+| Model | Dataset | Epochs | mAP@0.5 |
+|-------|---------|--------|---------|
+| MobileNetV2-SSD | Pascal VOC 2012 | 200 | **76.6%** |
+
+Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
+
+---
 
 ## Table of Contents
 
@@ -564,24 +593,7 @@ deploy:
     batch_size: 1
     opset: 17
 ```
-
 ---
-
-## Results
-
-### Example detections — Pascal VOC (SavedModel)
-
-![Demo inference](assets/demo_inference.jpg)
-
-*Cyclists detected in a cluttered scene: 6 × person, 1 × bicycle, 1 × motorbike — all at high confidence.*
-
-### Metrics
-
-| Model | Dataset | Epochs | mAP@0.5 |
-|-------|---------|--------|---------|
-| MobileNetV2-SSD | Pascal VOC 2012 | 200 | **76.6%** |
-
-Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
 
 ---
 
