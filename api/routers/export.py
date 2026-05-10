@@ -4,7 +4,7 @@ import subprocess
 from fastapi import APIRouter, HTTPException
 import threading, uuid
 from ..services.s3 import check_artifacts
-from ..config import PROJECT_ROOT
+from ..config import PROJECT_ROOT, TF_PYTHON, ONNX_PYTHON
 from pydantic import BaseModel
 
 class ExportRequest(BaseModel):
@@ -22,7 +22,7 @@ _jobs = {}
 def _do_export(job_id, req: ExportRequest):
     # Running the export job
     try:
-        subprocess.run(args= [sys.executable, str(PROJECT_ROOT / "api" / "run_export.py"), "--s3_path", req.checkpoint_s3_path, "--config_path", str(PROJECT_ROOT / 'configs' / 'experiments' / req.config_filename)], env={**os.environ, 'PYTHONPATH': str(PROJECT_ROOT / 'src')}, cwd= str(PROJECT_ROOT), check= True)
+        subprocess.run(args= [TF_PYTHON, str(PROJECT_ROOT / "api" / "run_export.py"), "--s3_path", req.checkpoint_s3_path, "--config_path", str(PROJECT_ROOT / 'configs' / 'experiments' / req.config_filename)], env={**os.environ, 'PYTHONPATH': str(PROJECT_ROOT / 'src')}, cwd= str(PROJECT_ROOT), check= True)
         _jobs[job_id]['status'] = 'success'
     except subprocess.CalledProcessError as e:
         _jobs[job_id] = {'status': 'error', 'log': [str(e)]}
@@ -30,7 +30,7 @@ def _do_export(job_id, req: ExportRequest):
         
 def _do_onnx(job_id, req: OnnxRequest):
     try:
-        subprocess.run(args= [sys.executable,"-m",'tf2onnx.convert','--saved-model', str(PROJECT_ROOT / 'exported_model' / 'saved_model'), '--output', str(PROJECT_ROOT / 'exported_model' / 'model.onnx'), '--opset', '17'], check= True)
+        subprocess.run(args= [ONNX_PYTHON,"-m",'tf2onnx.convert','--saved-model', str(PROJECT_ROOT / 'exported_model' / 'saved_model'), '--output', str(PROJECT_ROOT / 'exported_model' / 'model.onnx'), '--opset', '17'], check= True)
         _jobs[job_id]['status'] = 'success'
     except subprocess.CalledProcessError as e:
         _jobs[job_id] = {'status': 'error', 'log': [str(e)]}
@@ -82,6 +82,6 @@ def get_status(job_id: str):
 def get_artifacts(experiment_id):
     return {
         'status': 200,
-        'artifat_status': check_artifacts(experiment_id=experiment_id)
+        'artifact_status': check_artifacts(experiment_id=experiment_id)
     }
     
