@@ -197,7 +197,10 @@ def create_dataset_from_config(config: dict[str, Any], split: str):
             # Creating the VOC dataset
             from datasets.voc import VOCDataset
             return VOCDataset(root = config['data']['root'], split= split, classes_file= config['data']['classes_file'], use_difficult= config['data']['use_difficult'])
-        
+        case "vis_drone":
+            # Creating the VisDrone dataset
+            from datasets.vis_drone import VisDroneDataset
+            return VisDroneDataset(root= config['data']['root'], split= split, classes_file= config['data']['classes_file'], use_difficult= config['data']['use_difficult'])
         case _:
             raise ValueError(f"Unsupported dataset: {dataset_name}")
         

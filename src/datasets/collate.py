@@ -204,7 +204,7 @@ def create_training_dataset_from_tfrecords(config: dict[str, Any], shard_paths: 
     tf_dataset = tf.data.TFRecordDataset(filenames= shard_paths, num_parallel_reads= tf.data.AUTOTUNE).map(_parse_tfrecord, num_parallel_calls= tf.data.AUTOTUNE)
 
     if dataset_opts['shuffle']:
-        buffer_size = 2000 # TODO: Think about a config fallback
+        buffer_size = config['data'].get('shuffle_buffer', 500)
         tf_dataset = tf_dataset.shuffle(buffer_size, reshuffle_each_iteration=True)
         
     if dataset_opts['repeat']:
@@ -240,7 +240,7 @@ def create_validation_dataset_from_tfrecords(config: dict[str, Any], shard_paths
     
     # Now checking for the options
     if dataset_opts['shuffle']:
-        buffer_size = 2000
+        buffer_size = config['data'].get('shuffle_buffer', 500)
         tf_dataset = tf_dataset.shuffle(buffer_size, reshuffle_each_iteration=True)
 
     # Adding the transforms
@@ -263,5 +263,3 @@ def create_validation_dataset_from_tfrecords(config: dict[str, Any], shard_paths
     tf_dataset = tf_dataset.prefetch(tf.data.AUTOTUNE)
     
     return tf_dataset
-
-        

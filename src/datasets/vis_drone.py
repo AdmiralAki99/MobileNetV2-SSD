@@ -70,7 +70,8 @@ class VisDroneDataset(BaseDetectionDataset):
                     boxes.append([x_min, y_min, x_max, y_max])
                     labels.append(int(category))
                     
-        return np.array(boxes, dtype=np.float32), np.array(labels, dtype=np.int32)
+        return np.array(boxes, dtype=np.float32).reshape(-1, 4), np.array(labels, dtype=np.int32)
+    
     def _load_image(self, path: Path):
         if not path.exists():
             raise FileNotFoundError(f"Image not found: {path}")
@@ -111,14 +112,4 @@ class VisDroneDataset(BaseDetectionDataset):
             path= str(image_path),
             orig_size= (int(image.shape[0]), int(image.shape[1]))
         )
-        
-if __name__ == "__main__": 
-    dataset = VisDroneDataset(root="datasets/VisDrone", split="train", classes_file="/mnt/d/dev/MobileNetV2-SSD/datasets/VisDrone/visdrone_labels.txt")
-    print(f"Number of samples: {len(dataset)}")
-    sample = dataset[0]
-    print(f"Image shape: {sample.image.shape}")
-    print(f"Boxes shape: {sample.boxes.shape}")
-    print(f"Labels shape: {sample.labels.shape}")
-    print(f"Image ID: {sample.image_id}")
-    print(f"Original size: {sample.orig_size}")
     
