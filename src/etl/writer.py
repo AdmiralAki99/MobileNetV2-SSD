@@ -16,10 +16,9 @@ class TFRecordWriter:
         
     def open(self, video_id: str):
         self.video_id = video_id
-        shard_dir = self.output_dir / f"shard_{video_id}_{self._shard_index:05d}.tfrecord"
-        
-        # Creating a record writer
-        self._writer = tf.io.TFRecordWriter(str(shard_dir))
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        shard_path = self.output_dir / f"shard_{video_id}_{self._shard_index:05d}.tfrecord"
+        self._writer = tf.io.TFRecordWriter(str(shard_path))
         
         self._records_in_shard = 0
         self._shard_index = self._shard_index + 1

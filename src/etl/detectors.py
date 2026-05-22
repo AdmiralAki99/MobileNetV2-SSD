@@ -28,14 +28,20 @@ class Detection:
     class_name: str
     confidence: float
     
+def _resolve_device(device: str) -> str:
+    if device in ("gpu", "cuda"):
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return "cpu"
+
+
 class BaseDetector(ABC):
 
     name: str
-    
+
     @abstractmethod
     def predict(self, image:np.ndarray):
         pass
-    
+
     @abstractmethod
     def load(self):
         pass
@@ -49,7 +55,7 @@ class YOLODetector(BaseDetector):
         
         self.confidence = config.get('models',{}).get('yolo_model',{}).get('confidence_threshold',0.5)
         self.weights_path = config.get('models',{}).get('yolo_model',{}).get('weights_path',"yolov8m.pt")
-        self.device = config.get('models',{}).get('device', 'cpu')
+        self.device = _resolve_device(config.get('models', {}).get('device', 'cpu'))
         
     def load(self):
         self.model = YOLO(self.weights_path)
@@ -81,7 +87,7 @@ class RTDETRDetector(BaseDetector):
         
         self.confidence = config.get('models',{}).get('rt_detr_model',{}).get('confidence_threshold',0.5)
         self.weights_path = config.get('models',{}).get('rt_detr_model',{}).get('weights_path',"rtdetr-l.pt")
-        self.device = config.get('models',{}).get('device', 'cpu')
+        self.device = _resolve_device(config.get('models', {}).get('device', 'cpu'))
         
     def load(self):
         self.model = RTDETR(self.weights_path)
@@ -118,7 +124,7 @@ class GroundingDINODetector(BaseDetector):
         
         self.confidence = config.get('models',{}).get('grounding_dino_model',{}).get('confidence_threshold', 0.5)
         
-        self.device = config.get('models',{}).get('device', 'cpu')
+        self.device = _resolve_device(config.get('models', {}).get('device', 'cpu'))
     
     def load(self):
         # Loading the processor
@@ -136,12 +142,22 @@ class GroundingDINODetector(BaseDetector):
         with torch.no_grad():
             outputs = self.model(**inputs)
             
-        results = self.processor.post_process_grounded_object_detection(outputs, inputs.input_ids, box_threshold= self.confidence, text_threshold=0.3, target_sizes =[(H,W)])
+        import inspect
+        sig = inspect.signature(self.processor.post_process_grounded_object_detection)
+        if 'box_threshold' in sig.parameters:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs, inputs.input_ids, box_threshold=self.confidence, text_threshold=0.3, target_sizes=[(H, W)]
+            )
+        else:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs, inputs.input_ids, threshold=self.confidence, target_sizes=[(H, W)]
+            )
         
         result = results[0]
         
         detections = []
-        for box, label, score in zip(result['boxes'], result['labels'], result['scores']):
+        label_key = 'text_labels' if 'text_labels' in result else 'labels'
+        for box, label, score in zip(result['boxes'], result[label_key], result['scores']):
                       
             visdrone_id = TEXT_TO_VISDRONE.get(label.lower().strip())
             if visdrone_id is None:
