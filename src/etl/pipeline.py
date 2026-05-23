@@ -1,4 +1,5 @@
 import ray
+from datetime import datetime
 from sqlalchemy.orm import Session
 from pathlib import Path
 
@@ -32,10 +33,10 @@ class ETLWorker:
         video_record.height = metadata['height']
         video_record.width = metadata['width']
         
+        video_record.status = 'processing'
         self.session.add(video_record)
         self.session.flush()
-        
-        # Opening the writer
+
         self.writer.open(str(video_record.id))
         
         # Running all detection models
@@ -75,5 +76,7 @@ class ETLWorker:
                 self.session.add(annotation)
                 self.session.flush()
                 
+        video_record.status = 'completed'
+        video_record.completed_at = datetime.utcnow()
         self.session.commit()
         self.writer.close()
