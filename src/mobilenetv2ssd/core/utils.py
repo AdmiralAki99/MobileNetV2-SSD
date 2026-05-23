@@ -354,16 +354,32 @@ def initialize_run_metadata(config: dict[str, Any], args: dict[str, Any], finger
 
 
 # --- INFERENCE UTILITIES --- #
-def draw_bounding_boxes(image_shape: tf.Tensor, image_id: tf.Tensor, boxes: tf.Tensor, labels: tf.Tensor, pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, dataset_name: str, dataset_root: str, labels_map: dict[str, int]| None = None):
-    
+def draw_bounding_boxes(image_shape: tf.Tensor, image_id: tf.Tensor, boxes: tf.Tensor, labels: tf.Tensor, pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, dataset_name: str, dataset_root: str, labels_map: dict[str, int]| None = None, image_tensor: tf.Tensor | None = None):
+
     if dataset_name == "voc":
         dataset_root = Path(dataset_root)
-        dataset_root = dataset_root / "JPEGImages"
-        image_file = dataset_root / f"{image_id.numpy().decode()}.jpg"
+        image_file = dataset_root / "JPEGImages" / f"{image_id.numpy().decode()}.jpg"
+        original_image = Image.open(image_file)
+    elif dataset_name in ("vis_drone", "visdrone"):
+        image_id_str = image_id.numpy().decode()
+        dataset_root = Path(dataset_root)
+        image_file = None
+        for split_name in ["val", "train"]:
+            candidate = dataset_root / f"VisDrone2019-DET-{split_name}" / "images" / f"{image_id_str}.jpg"
+            if candidate.exists():
+                image_file = candidate
+                break
+        if image_file is not None:
+            original_image = Image.open(image_file)
+        elif image_tensor is not None:
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img_np = np.clip(image_tensor.numpy() * std + mean, 0, 1)
+            original_image = Image.fromarray((img_np * 255).astype(np.uint8))
+        else:
+            return None
     else:
-        raise ValueError("Wrong Dataset Type")
-
-    original_image = Image.open(image_file)
+        raise ValueError(f"Unsupported dataset type: {dataset_name}")
     H, W = image_shape[0], image_shape[1]
     original_image = original_image.resize((W,H))
     draw = ImageDraw.Draw(original_image)
@@ -435,11 +451,11 @@ def inference_function(config: dict[str,Any], dataset_batch: dict[str, Any], mod
             for k, v in class_labels.items()
         }
         
-    img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= class_labels)
-    
-    logger.log_image("val/inference_image", image= img, step= global_step)
-    
-    logger.success(f"Logged eval image....{'.'*20}")
+    img= draw_bounding_boxes(image_shape= tf.shape(image), image_id= image_id, boxes= valid_gt,labels= valid_gt_labels,pred_boxes= top_k_boxes, pred_scores= top_k_scores, pred_labels= top_k_labels, dataset_name = config['data']['dataset_name'],dataset_root = config['data']['root'],labels_map= class_labels, image_tensor= image)
+
+    if img is not None:
+        logger.log_image("val/inference_image", image= img, step= global_step)
+        logger.success(f"Logged eval image....{'.'*20}")
     
     
 # --- Directory Utilities --- #

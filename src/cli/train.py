@@ -330,20 +330,20 @@ def create_datasets(config: dict[str, Any], logger: Logger):
         train_shard_paths = [str(path) for path in train_shard_dir.iterdir() if path.is_file()]
         
         train_dataset = create_training_dataset_from_tfrecords(config= config, shard_paths= train_shard_paths, transform= train_compose)
-        metadata_dataset = create_dataset_from_config(config= config, split= config['data']['train_split'])
-        logger.info(f"Created {metadata_dataset.__class__.__name__} training dataset with {len(train_shard_paths)} shards {'.'*20}")
-        logger.info(f"Created {metadata_dataset.__class__.__name__} training dataset with {len(metadata_dataset)} samples {'.'*20}")
-        logger.info(f"Train loop has {int(len(metadata_dataset) // config['data']['train']['batch_size'])} steps{'.'*20}")
-        
+
+        metadata_path = Path(config['data']['root']) / "shards" / "metadata.json"
+        with open(metadata_path) as f:
+            shard_metadata = json.load(f)
+        n_train = shard_metadata[config['data']['train_split']]
+        logger.info(f"TFRecord training dataset: {len(train_shard_paths)} shards, {n_train} samples, ~{n_train // config['data']['train']['batch_size']} steps/epoch {'.'*20}")
+
         if config['eval']['eval_enabled']:
             val_shard_dir = Path(config['data']['root']) / "shards" / config['data']['val_split']
             val_shard_paths = [str(path) for path in val_shard_dir.iterdir() if path.is_file()]
             val_dataset = create_validation_dataset_from_tfrecords(config= config, shard_paths= val_shard_paths, transform= validation_compose)
-            
-            val_metadata_dataset = create_dataset_from_config(config= config, split= config['data']['val_split'])
-            logger.info(f"Created {val_metadata_dataset.__class__.__name__} validation dataset with {len(val_shard_paths)} shards {'.'*20}")
-            logger.info(f"Created {val_metadata_dataset.__class__.__name__} validation dataset with {len(val_metadata_dataset)} samples {'.'*20}")
-            logger.info(f"Eval loop has {int(len(val_metadata_dataset) // config['data']['val']['batch_size'])} steps{'.'*20}")
+
+            n_val = shard_metadata[config['data']['val_split']]
+            logger.info(f"TFRecord validation dataset: {len(val_shard_paths)} shards, {n_val} samples, ~{n_val // config['data']['val']['batch_size']} steps/epoch {'.'*20}")
         else:
             val_dataset = None      
         
@@ -542,6 +542,7 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
     return training_result
 
 def execute_training():
+    
     # Registering a handler
     handler = ShutdownHandler()
     handler.register()
@@ -619,8 +620,12 @@ def execute_training():
         
 
 if __name__ == "__main__":
-    
-   sys.exit(execute_training())
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True) 
+   
+    sys.exit(execute_training())
     
     
          

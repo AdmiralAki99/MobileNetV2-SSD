@@ -111,8 +111,25 @@ class VOCDataset(BaseDetectionDataset):
         else:
             return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
 
+    def iter_annotations(self):
+        for image_id in self.image_ids:
+            annotation_path = self.annotation_dir / f"{image_id}.xml"
+            if not annotation_path.exists():
+                continue
+            tree = ET.parse(annotation_path)
+            root = tree.getroot()
+            size = root.find("size")
+            if size is None:
+                continue
+            W = int(size.findtext("width") or 0)
+            H = int(size.findtext("height") or 0)
+            if W <= 0 or H <= 0:
+                continue
+            boxes, _ = self._parse_annotation(annotation_path)
+            yield boxes, (H, W)
+
     def _load_sample(self, index: int):
-        
+
         image_id = self.image_ids[index]
 
         # Loading the image
