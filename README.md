@@ -50,6 +50,13 @@ Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
     - [Pipeline](#pipeline)
     - [Key features](#key-features)
     - [Training output](#training-output)
+  - [ETL Data Pipeline](#etl-data-pipeline)
+    - [Overview](#etl-overview)
+    - [Multi-Model Detection](#multi-model-detection)
+    - [Consensus Engine](#consensus-engine)
+    - [Airflow Orchestration](#airflow-orchestration)
+    - [Running the ETL locally](#running-the-etl-locally)
+    - [ETL Configuration](#etl-configuration)
   - [Infrastructure](#infrastructure)
     - [Docker](#docker)
     - [Parallel experiments with Docker Compose](#parallel-experiments-with-docker-compose)
@@ -128,7 +135,16 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   ├── cli/                    # Entry points
 │   │   ├── train.py            #   Main training CLI
 │   │   ├── inference.py        #   SavedModel inference (image / webcam)
-│   │   └── onnx_inference.py   #   ONNX inference — fp32 or int8 (image / webcam)
+│   │   ├── onnx_inference.py   #   ONNX inference — fp32 or int8 (image / webcam)
+│   │   └── etl.py              #   ETL pipeline entry point
+│   ├── etl/                    # ETL pipeline components
+│   │   ├── detectors.py        #   YOLOv8, RT-DETR, Grounding DINO wrappers
+│   │   ├── consensus.py        #   Multi-model vote merging + IoU NMS
+│   │   ├── frame_sampler.py    #   Stride + scene-change frame selection
+│   │   ├── writer.py           #   TFRecord shard writer
+│   │   ├── pipeline.py         #   Ray actor: per-video orchestration
+│   │   ├── runner.py           #   Ray cluster init + job dispatch
+│   │   └── db.py               #   SQLAlchemy models (Video, Frame, Annotation)
 │   ├── deploy/                 # Export and deployment utilities
 │   │   ├── __init__.py         #   load_deploy_config() shared loader
 │   │   └── export/
@@ -185,9 +201,13 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   └── integration/            # Multi-component integration tests
 │
 ├── notebooks/                  # Notebook-driven development (see below)
+├── dags/
+│   └── etl_pipeline.py         # Airflow DAG: schedule, orchestrate, notify
+├── docker/
+│   └── Dockerfile.etl          # ETL worker image (PyTorch + ultralytics + TF + Ray)
 ├── Dockerfile                  # TF 2.17-gpu training image
 ├── Dockerfile.tensorboard      # TensorBoard S3-sync image
-├── docker-compose.yml          # Parallel experiments + monitoring
+├── docker-compose.yml          # Training, ETL, Airflow, Postgres, TensorBoard
 ├── Makefile                    # dev, test, lint, format shortcuts
 └── pyproject.toml              # Project metadata and dependencies
 ```
@@ -448,6 +468,148 @@ terraform apply
 
 ---
 
+## ETL Data Pipeline
+
+### ETL Overview
+
+The ETL pipeline converts raw drone footage into annotated TFRecord datasets ready for training. Rather than relying on a single model, it runs three detectors in parallel and merges their outputs through a consensus vote — producing higher-quality pseudo-labels than any individual model alone.
+
+```
+videos/
+  └── *.mp4, *.avi, *.mkv
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│  Frame Sampler                              │
+│  stride-based + scene-change detection      │
+└──────────────┬──────────────────────────────┘
+               │  sampled frames
+       ┌───────┼───────┐
+       ▼       ▼       ▼
+  ┌────────┐ ┌──────┐ ┌────────────────┐
+  │  YOLOv8│ │RT-   │ │Grounding DINO  │
+  │        │ │DETR  │ │(zero-shot,     │
+  │  COCO  │ │      │ │ text-prompted) │
+  └────┬───┘ └──┬───┘ └───────┬────────┘
+       └────────┼─────────────┘
+                ▼
+       ┌────────────────┐
+       │ Consensus      │   min_votes=2, IoU-based NMS
+       │ Engine         │   across model predictions
+       └───────┬────────┘
+               │  agreed annotations
+       ┌───────┴────────┐
+       ▼                ▼
+  TFRecords          PostgreSQL
+  (training-ready)   (metadata + lineage)
+```
+
+Detections are mapped from COCO and free-text labels to the VisDrone class taxonomy (10 classes: pedestrian, people, bicycle, car, van, truck, tricycle, awning-tricycle, bus, motor), making the output directly compatible with VisDrone fine-tuning.
+
+### Multi-Model Detection
+
+| Model | Type | Strengths |
+|-------|------|-----------|
+| YOLOv8m | Supervised, COCO-pretrained | Speed, small objects |
+| RT-DETR-L | Transformer-based detector | Global context, fewer false positives |
+| Grounding DINO (tiny) | Zero-shot, text-prompted | Flexible class vocabulary, open-world generalization |
+
+All three run on the same frame independently. The diversity of architectures (CNN, Transformer, vision-language) is intentional — each model has different failure modes, so agreement across models is a strong signal of a true detection.
+
+### Consensus Engine
+
+A detection is kept only if at least `min_votes` models agree (default: 2 out of 3), determined by IoU overlap between predictions. The final annotation records:
+
+- Bounding box (IoU-weighted average across agreeing models)
+- Class label and VisDrone class ID
+- Vote count and per-model confidence scores
+- Consensus score (mean confidence of agreeing models)
+
+This produces cleaner pseudo-labels than a single-model approach with less manual filtering.
+
+### Airflow Orchestration
+
+The pipeline is scheduled and orchestrated with Apache Airflow running locally via Docker Compose. The DAG handles the full workflow:
+
+```
+provision_ec2 ──► wait_for_ray ──► run_etl_job ──► teardown_ec2 ──► email_summary
+```
+
+In local mode (`ETL_LOCAL_MODE=true`), EC2 and Ray steps are skipped and the ETL runs as a Docker sibling container. In cloud mode, a Ray cluster on EC2 is provisioned via Terraform, the job is submitted to the Ray dashboard, and the instance is torn down on completion.
+
+After each run, an HTML summary email is automatically dispatched via SMTP with a per-video breakdown (frames sampled, annotation count, resolution) and a class distribution table — giving full observability into data quality without touching the UI.
+
+The DAG discovers new video files automatically from the `videos/` directory and skips files already marked `completed` in PostgreSQL — no manual registration required.
+
+### Running the ETL locally
+
+**Prerequisites:** Docker Desktop (or Docker Engine) and Docker Compose.
+
+```bash
+# 1. Copy and configure environment
+cp .env.example .env
+# Fill in: OWNER_EMAIL, SMTP_USER, SMTP_PASSWORD, AWS credentials
+
+# 2. Start Postgres and Airflow
+docker-compose up -d postgres airflow
+
+# 3. Build the ETL image
+docker-compose build etl
+
+# 4. Drop video files into videos/
+cp your_footage.mp4 videos/
+
+# 5. Open Airflow UI and trigger the DAG
+# http://localhost:8080  (user: admin)
+# Trigger: etl_pipeline → ▶ Run
+```
+
+Check `datasets/etl_output/shards/` for the generated TFRecord files and your inbox for the run summary.
+
+To run the ETL container directly (without Airflow):
+
+```bash
+docker-compose run --rm etl \
+  --config /app/configs/etl/default.yaml \
+  --videos /app/videos/your_footage.mp4
+```
+
+### ETL Configuration
+
+All ETL behaviour is controlled by `configs/etl/default.yaml`:
+
+```yaml
+etl:
+  sampling:
+    stride_frames: 30            # sample every N frames
+    scene_change_threshold: 0.35 # also sample on scene cuts
+    max_frames_per_video: 100
+
+  models:
+    device: cpu                  # or cuda
+    yolo_model:
+      confidence_threshold: 0.25
+    rt_detr_model:
+      confidence_threshold: 0.25
+    grounding_dino_model:
+      confidence_threshold: 0.25
+      text_prompt: "pedestrian . car . van . truck . bus ..."
+
+  consensus:
+    min_votes: 2                 # detections must be confirmed by ≥2 models
+    iou_threshold: 0.4
+
+  output:
+    tfrecords_dir: datasets/etl_output/shards
+    shard_size: 1000
+
+  ray:
+    mode: local                  # or cloud (Ray on EC2)
+    num_workers: 1
+```
+
+---
+
 ## Testing
 
 ```bash
@@ -601,6 +763,6 @@ deploy:
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), and image/webcam inference CLI.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), image/webcam inference CLI, multi-model ETL pipeline (YOLOv8 + RT-DETR + Grounding DINO consensus), Airflow DAG orchestration with PostgreSQL metadata tracking, TFRecord output, and automated HTML email reporting.
 
-**Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration.
+**Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration, VisDrone fine-tuning on ETL-generated datasets.
