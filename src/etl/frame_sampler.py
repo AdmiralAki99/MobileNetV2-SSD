@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
+import tempfile
+import boto3
 import numpy as np
 import cv2 as cv
 
@@ -21,11 +23,21 @@ class FrameSampler:
         
     def sample(self, video_path: str):
         
+        if video_path.startswith('s3://'):
+            path_without_prefix = video_path[5:]
+            bucket, key = path_without_prefix.split("/", 1)
+            temp = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+            boto3.client('s3').download_file(bucket,key, temp.name)
+            video_path = temp.name
+        
         video = cv.VideoCapture(video_path)
         
         fps = video.get(cv.CAP_PROP_FPS)
             
         total_frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
+        
+        if fps == 0 or total_frames == 0:
+            raise RuntimeError(f"Could not read video (fps={fps}, frames={total_frames}): {video_path}")
         
         width = int(video.get(cv.CAP_PROP_FRAME_WIDTH))
         height = int(video.get(cv.CAP_PROP_FRAME_HEIGHT))
@@ -68,6 +80,7 @@ class FrameSampler:
         video.release()    
         
         return sampled_frames, {'duration': duration_seconds, 'width': width, 'height': height, 'fps': fps, 'total_frames': total_frames}
+    
             
                 
             

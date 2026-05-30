@@ -1,6 +1,13 @@
 # Environment files (AWS credentials)
 .env
 
+# Terraform — sensitive state and local config
+infrastructure/terraform.tfvars
+infrastructure/terraform.tfstate
+infrastructure/terraform.tfstate.backup
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+
 # Removing the checkpoint files from notebook directory
 /notebooks/.ipynb_checkpoints/*
 /.ipynb_checkpoints/*

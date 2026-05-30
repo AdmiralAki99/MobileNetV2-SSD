@@ -1,4 +1,6 @@
+import os
 import ray
+import random
 from datetime import datetime
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -9,6 +11,9 @@ from .consensus import ConsensusEngine
 from .writer import TFRecordWriter
 from .db import build_engine, Video, Frame, Annotation
 
+ADJECTIVES = ['swift', 'amber', 'bold', 'iron', 'fierce', 'golden', 'silent', 'hollow', 'dark', 'eager']
+NOUNS = ['falcon', 'ridge', 'storm', 'forge', 'peak', 'flare', 'drift', 'crest', 'vale', 'dusk']
+
 @ray.remote
 class ETLWorker:
     def __init__(self, config: dict):
@@ -17,9 +22,12 @@ class ETLWorker:
         for detector in self.detectors:
             detector.load()
         
+        date = datetime.utcnow().strftime('%Y%m%d')
+        self.dataset_name = f"{random.choice(ADJECTIVES)}_{random.choice(NOUNS)}_{date}"
         self.consensus = ConsensusEngine(config= config)
         self.writer = TFRecordWriter(config= config)
-        engine = build_engine(url= config.get('database', {}).get('url'))
+        db_url = os.environ.get('DATABASE_URL') or config['database']['url']
+        engine = build_engine(url= db_url)
         self.session = Session(engine)
     
     def process_video(self, video_path: str):       
@@ -27,6 +35,7 @@ class ETLWorker:
         
         video_record = Video(source_file= video_path)
         video_record.filename = Path(video_path).name
+        video_record.dataset_name = self.dataset_name
         video_record.duration= metadata['duration']
         video_record.fps = metadata['fps']
         video_record.total_frames= metadata['total_frames']
@@ -37,7 +46,7 @@ class ETLWorker:
         self.session.add(video_record)
         self.session.flush()
 
-        self.writer.open(str(video_record.id))
+        self.writer.open(str(video_record.id), self.dataset_name)
         
         # Running all detection models
         for frame in sampled_frames:
@@ -53,11 +62,11 @@ class ETLWorker:
             
             # Creating the annotations
             for annotation in consensus_annotations:
-                x1,y1,x2,y2 = annotation.box
-                class_id = annotation.class_id
-                votes = annotation.votes
+                x1,y1,x2,y2 = (float(coordinate) for coordinate in annotation.box)
+                class_id = int(annotation.class_id)
+                votes = int(annotation.votes)
                 class_name= annotation.class_name
-                consensus_score = annotation.consensus_score
+                consensus_score = float(annotation.consensus_score)
                 model_confidences = annotation.model_confidence
                 
                 annotation = Annotation(
