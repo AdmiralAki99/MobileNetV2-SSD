@@ -1,4 +1,5 @@
 import io
+import boto3
 from pathlib import Path
 from typing import Any
 import numpy as np
@@ -8,23 +9,37 @@ from .consensus import ConsensusAnnotation
 
 class TFRecordWriter:
     def __init__(self, config: dict[str, Any]):
-        self.output_dir = Path(config.get('output', {}).get('tfrecords_dir','datasets/etl_output/shards'))
+        self.output_dir = config.get('output', {}).get('tfrecords_dir', 'datasets/etl_output/shards')
         self.shard_size = config.get('output', {}).get('shard_size',1000)
         self._writer = None
         self._shard_index = 0
         self._records_in_shard = 0
+        self._is_s3 = self.output_dir.startswith('s3://') # Writer needs the file path
         
-    def open(self, video_id: str):
+    def open(self, video_id: str, dataset_name: str = "unsorted"):
         self.video_id = video_id
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        shard_path = self.output_dir / f"shard_{video_id}_{self._shard_index:05d}.tfrecord"
-        self._writer = tf.io.TFRecordWriter(str(shard_path))
-        
+        self.dataset_name = dataset_name
+        shard_name = f"shard_{video_id}_{self._shard_index:05d}.tfrecord"
+        if self._is_s3:
+            local_dir = "/tmp/etl_shards"
+            Path(local_dir).mkdir(parents=True, exist_ok=True)
+            self._local_path = f"{local_dir}/{shard_name}"
+            bucket, prefix = self.output_dir[5:].split('/', 1)
+            self._s3_bucket = bucket
+            self._s3_key = f"{prefix}/{dataset_name}/{shard_name}"
+        else:
+            out = f"{self.output_dir}/{dataset_name}"  
+            Path(out).mkdir(parents=True, exist_ok=True)
+            self._local_path = f"{out}/{shard_name}"
+            
+        self._writer = tf.io.TFRecordWriter(self._local_path)
         self._records_in_shard = 0
         self._shard_index = self._shard_index + 1
         
     def close(self):
         self._writer.close()
+        if self._is_s3: # Writer cannot write to S3, needs to be uploaded using boto3
+            boto3.client('s3').upload_file(self._local_path, self._s3_bucket, self._s3_key)
         
     def write(self, image: np.ndarray, annotations: list[ConsensusAnnotation], image_id: str, path: str):
         
@@ -70,5 +85,5 @@ class TFRecordWriter:
         
         if self._records_in_shard >= self.shard_size:
             self.close()
-            self.open(self.video_id)
+            self.open(self.video_id, self.dataset_name)
     

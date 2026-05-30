@@ -13,6 +13,7 @@ class Video(Base):
     id: Mapped[int] = mapped_column(primary_key= True)
     source_file: Mapped[str]
     s3_key: Mapped[Optional[str]]
+    dataset_name: Mapped[Optional[str]] = mapped_column(String(100))
     filename: Mapped[str] = mapped_column(String(255))
     duration: Mapped[float]
     fps: Mapped[float]

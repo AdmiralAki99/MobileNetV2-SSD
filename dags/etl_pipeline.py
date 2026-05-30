@@ -11,6 +11,7 @@ import psycopg2
 import requests
 import time
 import yaml
+import subprocess
 
 OWNER_EMAIL = os.environ.get('AIRFLOW_OWNER_EMAIL', '')
 LOCAL_MODE = os.environ.get('ETL_LOCAL_MODE', 'false').lower() == 'true'
@@ -28,15 +29,30 @@ def _get_pending_videos(config_path: str) -> list:
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    video_dir = config['etl']['videos']['input_dir']
     extensions = tuple(config['etl']['videos']['extensions'])
-    if not os.path.exists(video_dir):
-        return []
-    all_files = [
-        os.path.join(video_dir, f)
-        for f in os.listdir(video_dir)
-        if f.lower().endswith(extensions)
-    ]
+    s3_cfg = config['etl']['videos'].get('s3', {})
+    bucket = s3_cfg.get('bucket', '')
+    if bucket and not LOCAL_MODE:
+        prefix = s3_cfg.get('input_prefix', '')
+        s3 = boto3.client('s3')
+        paginator= s3.get_paginator('list_objects_v2')
+        all_files = [
+            f"s3://{bucket}/{obj['Key']}"
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
+            for obj in page.get('Contents', [])
+            if obj['Key'].lower().endswith(extensions)
+        ]
+    else:
+        video_dir = config['etl']['videos']['input_dir']
+        if not os.path.exists(video_dir):
+            return []
+        all_files = [
+            os.path.join(video_dir, f)
+            for f in os.listdir(video_dir)
+            if f.lower().endswith(extensions)
+        ]
+    
+    # Final check to see everything is there
     if not all_files:
         return []
 
@@ -62,7 +78,6 @@ def _run_etl_job(**context):
         return {'skipped': True}
 
     if LOCAL_MODE:
-        import subprocess
         host_dir = os.environ.get('HOST_PROJECT_DIR', os.getcwd())
         result = subprocess.run(
             ['docker', 'run', '--rm',
@@ -78,16 +93,28 @@ def _run_etl_job(**context):
         if result.returncode != 0:
             raise RuntimeError(f"ETL container failed:\n{result.stderr}")
         return {'videos_processed': len(video_paths)}
-
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-    dashboard_url = config['etl']['ray']['dashboard_url']
+    
+    ray_ip = context['ti'].xcom_pull(task_ids='wait_for_ray')
+    dashboard_url = f'http://{ray_ip}:8265'
     videos_arg = ' '.join(video_paths)
     resp = requests.post(f'{dashboard_url}/api/jobs/', json={
         'entrypoint': f'python -m src.cli.etl --config {config_path} --videos {videos_arg}'
     })
+    # Waiting on EC2 to be winded down
+    
     resp.raise_for_status()
-    return resp.json()
+    job_id = resp.json()['submission_id']
+    
+    for _ in range(360):
+        status_resp = requests.get(f'{dashboard_url}/api/jobs/{job_id}').json()
+        job_status = status_resp.get('status')
+        if job_status == 'SUCCEEDED':
+            return {'video_processed': len(video_paths), 'job_id': job_id}
+        if job_status in ('FAILED', 'STOPPED'):
+            raise RuntimeError(f"Ray job {job_id} {job_status}: {status_resp.get('error_message', '')}")
+        time.sleep(30)
+    
+    raise TimeoutError(f"Ray job {job_id} did not finish within 3 hours")
 
 
 def _wait_for_ray(**context):
@@ -114,7 +141,7 @@ def _send_summary_email(**context):
     ds = context['ds']
     with open(context['params']['config_path']) as f:
         config = yaml.safe_load(f)
-    db_url = config['etl']['database']['url']
+    db_url = db_url = os.environ.get('DATABASE_URL') or config['etl']['database']['url']
     parsed = urlparse(db_url)
     conn = psycopg2.connect(
         host=parsed.hostname, port=parsed.port,
@@ -129,7 +156,7 @@ def _send_summary_email(**context):
             FROM videos v
             LEFT JOIN frames f ON f.video_id = v.id
             LEFT JOIN annotations a ON a.frame_id = f.id
-            WHERE DATE(v.created_at) = %s
+            WHERE v.created_at >= %s::date
             GROUP BY v.id
             ORDER BY v.created_at
         """, (ds,))
@@ -139,7 +166,7 @@ def _send_summary_email(**context):
             FROM annotations a
             JOIN frames f ON f.id = a.frame_id
             JOIN videos v ON v.id = f.video_id
-            WHERE DATE(v.created_at) = %s
+            WHERE v.created_at >= %s::date
             GROUP BY a.class_name ORDER BY total DESC
         """, (ds,))
         class_rows = cur.fetchall()
@@ -179,13 +206,13 @@ def _send_summary_email(**context):
     """
     send_email(to=OWNER_EMAIL, subject=f'ETL Pipeline Complete — {ds}', html_content=html)
 
-
 with DAG(
     dag_id='etl_pipeline',
     default_args=default_args,
     schedule_interval='0 2 * * *',
     start_date=datetime(2025, 1, 1),
     catchup=False,
+    max_active_runs=1,
     params={'config_path': 'configs/etl/default.yaml'}
 ) as dag:
 
