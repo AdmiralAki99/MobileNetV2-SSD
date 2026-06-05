@@ -1,4 +1,3 @@
-
 class PrecisionConfig:
     def __init__(self, forced_precision: set[str]):
         self._forced_precision_fields = forced_precision
@@ -8,11 +7,12 @@ class PrecisionConfig:
             return True
 
         return False
-    
+
     def get_forced_precision_fields(self):
         return self._forced_precision_fields
 
-def should_force_fp32(tag : str, precision_config: PrecisionConfig | None = None):
+
+def should_force_fp32(tag: str, precision_config: PrecisionConfig | None = None):
     if precision_config is None:
         return False
     # Precision config exists and needs to be checked

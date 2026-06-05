@@ -25,14 +25,17 @@ class ProgressBar:
             sys.stdout.write("\n")
             sys.stdout.flush()
 
+
 class S3SyncClient:
-    def __init__(self, checkpoint_bucket: str, artifact_bucket: str = None, dataset_bucket: str = None, logger: Any = None):
+    def __init__(
+        self, checkpoint_bucket: str, artifact_bucket: str = None, dataset_bucket: str = None, logger: Any = None
+    ):
         # checkpoint_bucket: S3 URI for checkpoints (required)
         # artifact_bucket: S3 URI for final artifacts (weights, summaries)
         # dataset_bucket: S3 URI for datasets
         # logger: Logger instance
-        
-        self._client = boto3.client('s3')
+
+        self._client = boto3.client("s3")
         self._logger = logger
 
         # Parse checkpoint bucket (required)
@@ -53,7 +56,7 @@ class S3SyncClient:
         # Legacy support - default to checkpoint bucket
         self._bucket = self._checkpoint_bucket
         self._base_prefix = self._checkpoint_prefix
-    
+
     def upload_file(self, local_file: Path, s3_key: str):
         try:
             local_file = Path(local_file)
@@ -63,11 +66,7 @@ class S3SyncClient:
             # Combine base_prefix with s3_key
             full_key = f"{self._base_prefix}/{s3_key}".strip("/") if self._base_prefix else s3_key
 
-            self._client.upload_file(
-                Filename=str(local_file),
-                Bucket=self._bucket,
-                Key=full_key
-            )
+            self._client.upload_file(Filename=str(local_file), Bucket=self._bucket, Key=full_key)
 
             if self._logger:
                 self._logger.info(f"Uploaded {full_key}")
@@ -95,14 +94,10 @@ class S3SyncClient:
                 parts = [self._base_prefix, s3_sub_prefix, str(relative_path)]
 
                 # Now breaking them down
-                s3_key= "/".join(part for part in parts if part)
+                s3_key = "/".join(part for part in parts if part)
 
                 # Actually upload to S3
-                self._client.upload_file(
-                    Filename=str(file_path),
-                    Bucket=self._bucket,
-                    Key=s3_key
-                )
+                self._client.upload_file(Filename=str(file_path), Bucket=self._bucket, Key=s3_key)
 
                 if self._logger:
                     self._logger.info(f"Uploaded {s3_key}")
@@ -112,15 +107,15 @@ class S3SyncClient:
         except Exception as err:
             if self._logger:
                 self._logger.warning(f"S3 upload failed: {err}. Checkpoint saved locally only.")
-    
+
     def list_keys(self, s3_sub_prefix: str) -> list:
         full_prefix = f"{self._base_prefix}/{s3_sub_prefix}".strip("/") if self._base_prefix else s3_sub_prefix
-        paginator = self._client.get_paginator('list_objects_v2')
+        paginator = self._client.get_paginator("list_objects_v2")
         pages = paginator.paginate(Bucket=self._bucket, Prefix=full_prefix)
         keys = []
         for page in pages:
-            for obj in page.get('Contents', []):
-                relative_path = obj['Key'][len(full_prefix):].lstrip("/")
+            for obj in page.get("Contents", []):
+                relative_path = obj["Key"][len(full_prefix) :].lstrip("/")
                 if relative_path:
                     keys.append(relative_path)
         return keys
@@ -135,16 +130,16 @@ class S3SyncClient:
             full_prefix = f"{self._base_prefix}/{s3_sub_prefix}".strip("/") if self._base_prefix else s3_sub_prefix
 
             # List all objects under the prefix
-            paginator = self._client.get_paginator('list_objects_v2')
+            paginator = self._client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=self._bucket, Prefix=full_prefix)
 
             downloaded = 0
             for page in pages:
-                for obj in page.get('Contents', []):
-                    s3_key = obj['Key']
+                for obj in page.get("Contents", []):
+                    s3_key = obj["Key"]
 
                     # Get the relative path from the prefix
-                    relative_path = s3_key[len(full_prefix):].lstrip("/")
+                    relative_path = s3_key[len(full_prefix) :].lstrip("/")
                     if not relative_path:
                         continue
 
@@ -154,14 +149,11 @@ class S3SyncClient:
                     local_file = local_dir / relative_path
                     local_file.parent.mkdir(parents=True, exist_ok=True)
 
-                    file_size = obj.get('Size', 0)
+                    file_size = obj.get("Size", 0)
                     progress = ProgressBar(relative_path, file_size)
 
                     self._client.download_file(
-                        Bucket=self._bucket,
-                        Key=s3_key,
-                        Filename=str(local_file),
-                        Callback=progress
+                        Bucket=self._bucket, Key=s3_key, Filename=str(local_file), Callback=progress
                     )
                     downloaded += 1
 
@@ -180,7 +172,7 @@ class S3SyncClient:
     def upload_training_artifacts(self, log_directory: Path, run_root: Path):
         # log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
         # run_root: Path to run root directory (e.g., runs/)
-        
+
         if self._checkpoint_bucket is None:
             return
 
@@ -191,11 +183,7 @@ class S3SyncClient:
                 if ckpt_file.is_file():
                     relative_path = ckpt_file.relative_to(run_root.parent)
                     s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-                    self._client.upload_file(
-                        Filename=str(ckpt_file),
-                        Bucket=self._checkpoint_bucket,
-                        Key=s3_key
-                    )
+                    self._client.upload_file(Filename=str(ckpt_file), Bucket=self._checkpoint_bucket, Key=s3_key)
                     if self._logger:
                         self._logger.info(f"Uploaded {s3_key}")
 
@@ -206,11 +194,7 @@ class S3SyncClient:
                 if ckpt_file.is_file():
                     relative_path = ckpt_file.relative_to(run_root.parent)
                     s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-                    self._client.upload_file(
-                        Filename=str(ckpt_file),
-                        Bucket=self._checkpoint_bucket,
-                        Key=s3_key
-                    )
+                    self._client.upload_file(Filename=str(ckpt_file), Bucket=self._checkpoint_bucket, Key=s3_key)
                     if self._logger:
                         self._logger.info(f"Uploaded {s3_key}")
 
@@ -219,11 +203,7 @@ class S3SyncClient:
             if tb_file.is_file():
                 relative_path = tb_file.relative_to(run_root.parent)
                 s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-                self._client.upload_file(
-                    Filename=str(tb_file),
-                    Bucket=self._checkpoint_bucket,
-                    Key=s3_key
-                )
+                self._client.upload_file(Filename=str(tb_file), Bucket=self._checkpoint_bucket, Key=s3_key)
 
         # Upload TensorBoard events (in tensorboard subdirectory if exists)
         tb_subdir = log_directory / "tensorboard"
@@ -232,49 +212,33 @@ class S3SyncClient:
                 if tb_file.is_file():
                     relative_path = tb_file.relative_to(run_root.parent)
                     s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-                    self._client.upload_file(
-                        Filename=str(tb_file),
-                        Bucket=self._checkpoint_bucket,
-                        Key=s3_key
-                    )
+                    self._client.upload_file(Filename=str(tb_file), Bucket=self._checkpoint_bucket, Key=s3_key)
 
         # Upload training.log
         training_log = log_directory / "training.log"
         if training_log.exists():
             relative_path = training_log.relative_to(run_root.parent)
             s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-            self._client.upload_file(
-                Filename=str(training_log),
-                Bucket=self._checkpoint_bucket,
-                Key=s3_key
-            )
+            self._client.upload_file(Filename=str(training_log), Bucket=self._checkpoint_bucket, Key=s3_key)
 
         # Upload metric history
         metric_file = log_directory / "metric_history.json"
         if metric_file.exists():
             relative_path = metric_file.relative_to(run_root.parent)
             s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-            self._client.upload_file(
-                Filename=str(metric_file),
-                Bucket=self._checkpoint_bucket,
-                Key=s3_key
-            )
+            self._client.upload_file(Filename=str(metric_file), Bucket=self._checkpoint_bucket, Key=s3_key)
 
         # Upload checkpoint metadata file
         checkpoint_metadata = log_directory / "checkpoints" / "checkpoint"
         if checkpoint_metadata.exists():
             relative_path = checkpoint_metadata.relative_to(run_root.parent)
             s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
-            self._client.upload_file(
-                Filename=str(checkpoint_metadata),
-                Bucket=self._checkpoint_bucket,
-                Key=s3_key
-            )
+            self._client.upload_file(Filename=str(checkpoint_metadata), Bucket=self._checkpoint_bucket, Key=s3_key)
 
     def upload_final_artifacts(self, log_directory: Path, run_root: Path):
         #  log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
         #  run_root: Path to run root directory (e.g., runs/)
-        
+
         if self._artifact_bucket is None:
             if self._logger:
                 self._logger.warning("Artifact bucket not configured. Skipping final artifact upload.")
@@ -287,11 +251,7 @@ class S3SyncClient:
                 if weight_file.is_file():
                     relative_path = weight_file.relative_to(run_root.parent)
                     s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
-                    self._client.upload_file(
-                        Filename=str(weight_file),
-                        Bucket=self._artifact_bucket,
-                        Key=s3_key
-                    )
+                    self._client.upload_file(Filename=str(weight_file), Bucket=self._artifact_bucket, Key=s3_key)
                     if self._logger:
                         self._logger.info(f"Uploaded final artifact: {s3_key}")
 
@@ -300,11 +260,7 @@ class S3SyncClient:
         if summary_file.exists():
             relative_path = summary_file.relative_to(run_root.parent)
             s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
-            self._client.upload_file(
-                Filename=str(summary_file),
-                Bucket=self._artifact_bucket,
-                Key=s3_key
-            )
+            self._client.upload_file(Filename=str(summary_file), Bucket=self._artifact_bucket, Key=s3_key)
             if self._logger:
                 self._logger.info(f"Uploaded training summary: {s3_key}")
 
@@ -312,23 +268,23 @@ class S3SyncClient:
 def parse_bucket_uri(uri: str):
     # Separate the s3://
     path = uri.removeprefix("s3://")
-    
+
     if "/" in path:
         # Split the parts for the path
-        bucket, prefix = path.split("/",1)
+        bucket, prefix = path.split("/", 1)
     else:
         bucket, prefix = path, ""
-        
+
     return bucket, prefix
 
 
 def build_s3_sync(config: dict, logger: Any = None):
 
-    storage_config = config.get('infrastructure', {}).get('storage', {})
+    storage_config = config.get("infrastructure", {}).get("storage", {})
 
-    checkpoint_bucket = storage_config.get('checkpoint_bucket')
-    artifact_bucket = storage_config.get('artifact_bucket')
-    dataset_bucket = storage_config.get('dataset_bucket')
+    checkpoint_bucket = storage_config.get("checkpoint_bucket")
+    artifact_bucket = storage_config.get("artifact_bucket")
+    dataset_bucket = storage_config.get("dataset_bucket")
 
     # Checkpoint bucket is required
     if not checkpoint_bucket:
@@ -341,7 +297,7 @@ def build_s3_sync(config: dict, logger: Any = None):
             checkpoint_bucket=checkpoint_bucket,
             artifact_bucket=artifact_bucket,
             dataset_bucket=dataset_bucket,
-            logger=logger
+            logger=logger,
         )
         return client
     except Exception as e:

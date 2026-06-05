@@ -1,19 +1,19 @@
-from unittest import case
 import numpy as np
 from typing import Any, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from abc import ABC, abstractmethod
 
+
 @dataclass
 class DetectionSample:
     image: np.ndarray  # Shape: [H, W, 3]
     boxes: np.ndarray  # Shape: [N, 4]
-    labels: np.ndarray # Shape: [N]
+    labels: np.ndarray  # Shape: [N]
     image_id: str
     path: str
-    orig_size: tuple[int,int] # (height, width)
-    
+    orig_size: tuple[int, int]  # (height, width)
+
     def validate(self):
         if self.image.ndim != 3 or self.image.shape[2] != 3:
             raise ValueError(f"Image must be [H,W,3], got {self.image.shape}")
@@ -41,7 +41,6 @@ class DetectionSample:
         if len(self.labels) > 0 and np.any(self.labels < 1):
             raise ValueError(f"Labels must be >= 1 (0 is background), got min={self.labels.min()}")
 
-
     def to_dict(self):
         return {
             "image": self.image,
@@ -51,10 +50,13 @@ class DetectionSample:
             "path": self.path,
             "orig_size": np.array(self.orig_size, dtype=np.int32),
         }
-        
+
+
 class BaseDetectionDataset(ABC):
-    def __init__(self,root: str | Path, split: str, classes_file: str | Path, use_difficult: bool = False, validate: bool = True):
-        
+    def __init__(
+        self, root: str | Path, split: str, classes_file: str | Path, use_difficult: bool = False, validate: bool = True
+    ):
+
         self.root = Path(root)
         self.split = split
         self.use_difficult = use_difficult
@@ -66,7 +68,7 @@ class BaseDetectionDataset(ABC):
         self._index_to_class = {i + 1: name for i, name in enumerate(self._class_names)}
         self._index_to_class[0] = "background"
 
-    def _load_classes(self,classes_file: str | Path):
+    def _load_classes(self, classes_file: str | Path):
         classes_file = Path(classes_file)
 
         # Checking if it exists
@@ -83,16 +85,6 @@ class BaseDetectionDataset(ABC):
     @property
     def class_to_index(self):
         return self._class_to_index
-
-    @property
-    def class_to_index(self):
-        return {name: i + 1 for i, name in enumerate(self.class_names)}
-
-    @property
-    def index_to_class(self):
-        mapping = {i + 1: name for i, name in enumerate(self.class_names)}
-        mapping[0] = "background"
-        return mapping
 
     @property
     def index_to_class(self):
@@ -118,7 +110,7 @@ class BaseDetectionDataset(ABC):
 
         boxes = sample.boxes
         labels = sample.labels
-        H,W = sample.image.shape[:2]
+        H, W = sample.image.shape[:2]
 
         # Checking for the boxes
         if len(boxes) == 0:
@@ -126,8 +118,8 @@ class BaseDetectionDataset(ABC):
 
         # Cleaning the boxes first
         boxes = boxes.copy()
-        boxes[:, [0,2]] = np.clip(boxes[:, [0,2]], 0, W)
-        boxes[:, [1,3]] = np.clip(boxes[:, [1,3]], 0, H)
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, W)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, H)
 
         # Checking for the degenerate boxes
         widths = boxes[:, 2] - boxes[:, 0]
@@ -135,13 +127,13 @@ class BaseDetectionDataset(ABC):
         valid_mask = (widths > 0) & (heights > 0)
 
         # Removing NaN Boxes
-        finite_mask = np.all(np.isfinite(boxes), axis = 1)
+        finite_mask = np.all(np.isfinite(boxes), axis=1)
         valid_mask = valid_mask & finite_mask
 
         return DetectionSample(
-            image = sample.image,
-            boxes = boxes[valid_mask],
-            labels= labels[valid_mask],
+            image=sample.image,
+            boxes=boxes[valid_mask],
+            labels=labels[valid_mask],
             image_id=sample.image_id,
             path=sample.path,
             orig_size=sample.orig_size,
@@ -172,7 +164,7 @@ class BaseDetectionDataset(ABC):
     def get_stats(self):
         total_boxes = 0
         class_counts = {name: 0 for name in self.class_names}
-        
+
         for sample in self:
             total_boxes = total_boxes + len(sample.boxes)
             for label in sample.labels:
@@ -185,22 +177,33 @@ class BaseDetectionDataset(ABC):
             "avg_boxes_per_image": total_boxes / len(self) if len(self) > 0 else 0,
             "class_distribution": class_counts,
         }
-        
-        
+
+
 # Creating a function to create the dataset based on the config
 def create_dataset_from_config(config: dict[str, Any], split: str):
     # Need to check what type of dataset is needed based on the config
     # First checing for the dataset name
-    dataset_name = config['data']['dataset_name']
+    dataset_name = config["data"]["dataset_name"]
     match dataset_name:
         case "voc":
             # Creating the VOC dataset
             from datasets.voc import VOCDataset
-            return VOCDataset(root = config['data']['root'], split= split, classes_file= config['data']['classes_file'], use_difficult= config['data']['use_difficult'])
+
+            return VOCDataset(
+                root=config["data"]["root"],
+                split=split,
+                classes_file=config["data"]["classes_file"],
+                use_difficult=config["data"]["use_difficult"],
+            )
         case "vis_drone":
             # Creating the VisDrone dataset
             from datasets.vis_drone import VisDroneDataset
-            return VisDroneDataset(root= config['data']['root'], split= split, classes_file= config['data']['classes_file'], use_difficult= config['data']['use_difficult'])
+
+            return VisDroneDataset(
+                root=config["data"]["root"],
+                split=split,
+                classes_file=config["data"]["classes_file"],
+                use_difficult=config["data"]["use_difficult"],
+            )
         case _:
             raise ValueError(f"Unsupported dataset: {dataset_name}")
-        

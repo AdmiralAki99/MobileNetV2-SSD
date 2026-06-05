@@ -18,7 +18,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest",
-  "pytest-cov"
+  "pytest-cov",
+  "ruff",
+  "black",
+  "mypy",
 ]
 
 onnx-export = [
@@ -31,6 +34,17 @@ cloud = [
   "boto3>=1.34.0",
 ]
 
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = ["notebooks", ".venvs", "ref", "demo_runs", "runs", "exported_model"]
+
+[tool.ruff.lint]
+ignore = ["E501", "E402"]   # line-length (black's job), import-not-at-top
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F403", "F405", "F821"]   # tests legitimately use `import *`
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -39,9 +53,27 @@ minversion = "8.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra -m 'not integration and not regression'"
-
 markers = [
   "unit: fast, deterministic unit tests",
   "integration: slower tests that touch multiple components",
   "regression: tests that lock down previously-broken behavior"
 ]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+explicit_package_bases = true
+ignore_missing_imports = true
+no_implicit_optional = false
+check_untyped_defs = false
+warn_return_any = false
+
+[tool.black]
+line-length = 120
+extend-exclude = '''
+/(
+  \.venvs
+  | notebooks
+  | exported_model
+)/
+'''

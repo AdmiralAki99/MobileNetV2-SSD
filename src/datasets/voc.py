@@ -1,10 +1,10 @@
 import numpy as np
 from PIL import Image
-from typing import Any
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from datasets.base import BaseDetectionDataset, DetectionSample
+
 
 class VOCDataset(BaseDetectionDataset):
     def __init__(self, root: str | Path, split: str, classes_file: str | Path, use_difficult: bool = False):
@@ -21,12 +21,12 @@ class VOCDataset(BaseDetectionDataset):
 
         if len(self.image_ids) == 0:
             raise ValueError(f"No images found for split '{split}'")
-        
+
     def _validate_paths(self):
         # Checking if the directory exists or not
         if not self.jpeg_dir.exists():
             raise FileNotFoundError(f"JPEGImages directory not found: {self.jpeg_dir}")
-        
+
         if not self.annotation_dir.exists():
             raise FileNotFoundError(f"Annotations directory not found: {self.annotation_dir}")
 
@@ -35,9 +35,9 @@ class VOCDataset(BaseDetectionDataset):
 
     def _load_image_ids(self):
         # Loading the ids from the split file to get the proper images
-        
+
         split_file = self.split_dir / f"{self.split}.txt"
-        
+
         if not split_file.exists():
             raise FileNotFoundError(f"Split file not found: {split_file}")
 
@@ -60,12 +60,12 @@ class VOCDataset(BaseDetectionDataset):
 
         # Read the file
         image = Image.open(path).convert("RGB")
-        return np.array(image, dtype = np.float32)
+        return np.array(image, dtype=np.float32)
 
     def _parse_annotation(self, path: Path):
 
         if not path.exists():
-             return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
+            return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
 
         # Loading the XML annotation
         tree = ET.parse(path)
@@ -107,7 +107,7 @@ class VOCDataset(BaseDetectionDataset):
             labels.append(self.class_to_index[name])
 
         if boxes:
-            return np.array(boxes, dtype= np.float32), np.array(labels, dtype=np.int32)
+            return np.array(boxes, dtype=np.float32), np.array(labels, dtype=np.int32)
         else:
             return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.int32)
 
@@ -141,10 +141,5 @@ class VOCDataset(BaseDetectionDataset):
         boxes, labels = self._parse_annotation(annotation_path)
 
         return DetectionSample(
-            image = image, 
-            boxes = boxes,
-            labels = labels,
-            image_id = image_id,
-            path = str(image_path),
-            orig_size = image.shape[:2]
+            image=image, boxes=boxes, labels=labels, image_id=image_id, path=str(image_path), orig_size=image.shape[:2]
         )

@@ -1,35 +1,38 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
 from ..config import ETL_DB_URL
 
 router = APIRouter()
 
+
 @router.get("/stats")
 def get_stats():
-    engine= create_engine(url=ETL_DB_URL)
+    engine = create_engine(url=ETL_DB_URL)
     with engine.connect() as conn:
         result = conn.execute(text("SELECT COUNT(*) FROM videos"))
         total_videos = result.scalar()
-        
+
         result = conn.execute(text("SELECT COUNT(*) FROM frames"))
         total_frames = result.scalar()
-        
+
         result = conn.execute(text("SELECT COUNT(*) FROM annotations"))
         total_annotations = result.scalar()
-        
+
         class_distributions = class_distributions = [
-            {'class_name': row[0], 'count': row[1]}
-            for row in conn.execute(text("SELECT class_name, COUNT(*) as count FROM annotations GROUP BY class_name ORDER BY count DESC")).all()
+            {"class_name": row[0], "count": row[1]}
+            for row in conn.execute(
+                text("SELECT class_name, COUNT(*) as count FROM annotations GROUP BY class_name ORDER BY count DESC")
+            ).all()
         ]
-        
+
     return {
-        'total_videos': total_videos,
-        'total_frames': total_frames,
-        'total_annotations': total_annotations,
-        'class_distribution': class_distributions
+        "total_videos": total_videos,
+        "total_frames": total_frames,
+        "total_annotations": total_annotations,
+        "class_distribution": class_distributions,
     }
-    
+
+
 @router.get("/videos")
 def get_videos():
     engine = create_engine(ETL_DB_URL)
@@ -44,8 +47,9 @@ def get_videos():
             GROUP BY v.id ORDER BY v.created_at DESC
         """)
         results = conn.execute(query).all()
-        
+
     return [dict(row._mapping) for row in results]
+
 
 @router.get("/videos/{video_id}/frames")
 def get_frames(video_id: int):
@@ -62,6 +66,7 @@ def get_frames(video_id: int):
         """)
         results = conn.execute(query, {"vid": video_id}).all()
     return [dict(row._mapping) for row in results]
+
 
 @router.get("/frames/{frame_id}/annotations")
 def get_annotations(frame_id: int):

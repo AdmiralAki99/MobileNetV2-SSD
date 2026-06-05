@@ -138,3 +138,7 @@ jobs:
           tags: |
             admiralaki/${{ matrix.image }}:latest
             admiralaki/${{ matrix.image }}:${{ github.sha }}
+
+      - name: Mypy (type check)
+        continue-on-error: true
+        run: mypy src
