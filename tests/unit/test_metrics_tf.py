@@ -418,9 +418,7 @@ def test_convert_batch_to_metric_format():
 def test_build_metrics_from_config():
 
     config = {
-        "model": {
-            "num_classes": 21,
-        },
+        "num_classes": 21,
         "eval": {
             "metrics": {
                 "voc_ap_50": {

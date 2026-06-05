@@ -233,8 +233,9 @@ def test_postprocess():
     use_sigmoid = False
     image_meta = {"image_height": 300, "image_width": 300}
 
+    # Boxes are returned in xyxy order (matches config output_format and production)
     expected_boxes = tf.constant(
-        [[[45.0, 196.2, 105.0, 256.2], [45.0, 45.0, 105.0, 105.0], [195.0, 41.84487, 255.0, 108.15513]]],
+        [[[196.2, 45.0, 256.2, 105.0], [45.0, 45.0, 105.0, 105.0], [41.84487, 195.0, 108.15513, 255.0]]],
         dtype=tf.float32,
     )
 

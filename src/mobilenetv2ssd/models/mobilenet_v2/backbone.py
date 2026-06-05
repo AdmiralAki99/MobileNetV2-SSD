@@ -282,6 +282,10 @@ def build_backbone(
 
     model.transplant_weights(ref_layers, translation_map)
 
+    # Build the model with a forward pass so weights can be saved
+    # (Keras 3 refuses save_weights on an unbuilt model)
+    model(tf.zeros((1, *input_shape), dtype=tf.float32))
+
     # Now Storing the weights to the weights path
     model.save_weights(str(weights_path))
 
