@@ -11,18 +11,17 @@ from training.amp import AMPContext
 from infrastructure.dynamodb_ledger import ExperimentLedger
 
 from infrastructure.s3_sync import S3SyncClient
-import tensorflow as tf
 
 
 @dataclass
 class TrainingBundle:
-        
-    # Determinism Factors 
+
+    # Determinism Factors
     logger: Logger
     fingerprint: Fingerprint
     run_dir: str | None
     config: dict[str, Any]
-    
+
     # Training Factors
     model: Any
     priors_cxcywh: Any
@@ -32,24 +31,25 @@ class TrainingBundle:
     precision_config: PrecisionConfig
     ema: EMA
     amp: AMPContext
-    
+
     # Metrics Factors
     metrics_manager: MetricsCollection
-    
+
     # State Factors
     checkpoint_manager: CheckpointManager
     start_epoch: int = 0
     max_epochs: int | None = None
     global_step: int = 0
     best_metric: int | None = None
-    
+
     # S3 Sync Client for storage
     s3_client: S3SyncClient | None = None
-    
+
     # Experiment Factors
     experiment_ledger: ExperimentLedger | None = None
     ledger_claimed: bool = False
-    
+
+
 # @dataclass
 # class InferenceBundle:
 

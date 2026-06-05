@@ -5,7 +5,9 @@ import math
 from mobilenetv2ssd.models.ssd.ops.encode_ops_tf import *
 
 import pytest
+
 pytestmark = pytest.mark.unit
+
 
 def _xyxy_from_cxcywh(cxcywh: np.ndarray) -> np.ndarray:
     cx, cy, w, h = cxcywh
@@ -19,8 +21,8 @@ def _expected_encode(gt_xyxy: np.ndarray, prior_cxcywh: np.ndarray, variance=(0.
 
     gcx = (x1 + x2) / 2.0
     gcy = (y1 + y2) / 2.0
-    gw = (x2 - x1)
-    gh = (y2 - y1)
+    gw = x2 - x1
+    gh = y2 - y1
 
     v0, v1 = variance
     tx = (gcx - px) / (pw * v0)
@@ -78,15 +80,15 @@ def test_encode_batched_matches_core_for_each_row():
     # image 0
     gt_np[0, 0] = _xyxy_from_cxcywh(priors_np[0])  # identical -> zeros
     gt_np[0, 1] = _xyxy_from_cxcywh(np.array([0.65, 0.65, 0.3, 0.3], dtype=np.float32))  # shift
-    gt_np[0, 2] = _xyxy_from_cxcywh(np.array([0.4, 0.4, 0.2, 0.2], dtype=np.float32))   # bigger
+    gt_np[0, 2] = _xyxy_from_cxcywh(np.array([0.4, 0.4, 0.2, 0.2], dtype=np.float32))  # bigger
 
     # image 1 (same priors, different GT)
     gt_np[1, 0] = _xyxy_from_cxcywh(priors_np[0])  # identical -> zeros
     gt_np[1, 1] = _xyxy_from_cxcywh(np.array([0.55, 0.55, 0.3, 0.3], dtype=np.float32))  # shift opposite
     gt_np[1, 2] = _xyxy_from_cxcywh(np.array([0.4, 0.4, 0.05, 0.05], dtype=np.float32))  # smaller
 
-    priors = tf.constant(priors_np, dtype=tf.float32)      # [N,4]
-    gt_xyxy = tf.constant(gt_np, dtype=tf.float32)         # [B,N,4]
+    priors = tf.constant(priors_np, dtype=tf.float32)  # [N,4]
+    gt_xyxy = tf.constant(gt_np, dtype=tf.float32)  # [B,N,4]
 
     encoded_batched = encode_boxes_batch(gt_xyxy, priors, variance)
 

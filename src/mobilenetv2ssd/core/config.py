@@ -7,25 +7,30 @@ from typing import Any
 
 _ENV_PATTERN = re.compile(r"\$\{([^}:]+)(:-([^}]*))?\}")
 
+
 # Creating a main function to load the different files for the different configs for the components
-def load_config(experiment_path: str | Path, config_root: str | Path | None = None, overrides: list[str] | None = None,):
+def load_config(
+    experiment_path: str | Path,
+    config_root: str | Path | None = None,
+    overrides: list[str] | None = None,
+):
     # Resolving the config root
     if config_root is None:
         config_root = PROJECT_ROOT / "configs"
     else:
         config_root = Path(config_root)
-        
+
     # Resolving the experiment path
     exp_path = Path(experiment_path)
     if not exp_path.is_absolute() and not exp_path.exists():
         exp_path = config_root / exp_path
-        
+
     experiment = read_yaml(exp_path)
-    
+
     # Gettings the defaults and recipes
-    defaults = experiment.get('defaults', {})
-    recipes = experiment.get('recipes', {})
-    
+    defaults = experiment.get("defaults", {})
+    recipes = experiment.get("recipes", {})
+
     # Merging all the configs together
     merged_config: dict[str, Any] = {}
     for component, default_path in defaults.items():
@@ -34,45 +39,49 @@ def load_config(experiment_path: str | Path, config_root: str | Path | None = No
         full_path = config_root / config_path
         if full_path.exists():
             merged_config = merge_dict(merged_config, read_yaml(full_path))
-            
+
     # Merging the experiment overrides
-    exp_metadata_keys = {'experiment', 'infrastructure', 'defaults', 'recipes', 'overrides'}
-    merged_config = merge_dict(merged_config, {key: value for key, value in experiment.items() if key not in exp_metadata_keys})
-    
-    if 'overrides' in experiment:
-        merged_config = merge_dict(merged_config, experiment['overrides'])
-    
-    merged_config['experiment'] = experiment.get('experiment', {})
-    merged_config['infrastructure'] = experiment.get('infrastructure', {})
-    
+    exp_metadata_keys = {"experiment", "infrastructure", "defaults", "recipes", "overrides"}
+    merged_config = merge_dict(
+        merged_config, {key: value for key, value in experiment.items() if key not in exp_metadata_keys}
+    )
+
+    if "overrides" in experiment:
+        merged_config = merge_dict(merged_config, experiment["overrides"])
+
+    merged_config["experiment"] = experiment.get("experiment", {})
+    merged_config["infrastructure"] = experiment.get("infrastructure", {})
+
     # Applying CLI overrides
     if overrides:
         merged_config = merge_dict(merged_config, parse_cli_overrides(overrides))
-        
+
     merged_config = inject_env_vars(merged_config)
     merged_config = _resolve_paths(merged_config, PROJECT_ROOT)
 
     return merged_config
-    
+
 
 def get_project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
+
 def read_yaml(path: Path | str):
     # Checking if it is a string, if so convert to path
-    if type(path) == str:
+    if isinstance(path, str):
         path = Path(path)
-        
+
     if not path.exists():
         return {}
-        
+
     # Function to read YAML file
-    with open(path, 'r') as file:
-        data = yaml.load(file,Loader=yaml.SafeLoader)
-        
+    with open(path, "r") as file:
+        data = yaml.load(file, Loader=yaml.SafeLoader)
+
     return data if data else {}
 
-def merge_dict(base: dict[str , any], override: dict[str , any]) -> dict[str , any]:
+
+def merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
 
     for key, override_value in override.items():
@@ -90,14 +99,14 @@ def merge_dict(base: dict[str , any], override: dict[str , any]) -> dict[str , a
 
     return result
 
+
 def parse_cli_overrides(overrides: list[str]):
-    result: dict[str, any] = {}
-    
+    result: dict[str, Any] = {}
+
     for item in overrides:
         if not item:
             continue  # skip empty strings
 
-        
         if "=" not in item:
             continue
 
@@ -113,7 +122,7 @@ def parse_cli_overrides(overrides: list[str]):
 
         # 4) Build a nested dict for this one override
         #    e.g. ["train", "batch_size"], 64 → {"train": {"batch_size": 64}}
-        cur: dict[str, any] = {}
+        cur: dict[str, Any] = {}
         d = cur
         for key in path[:-1]:
             d[key] = {}
@@ -122,8 +131,9 @@ def parse_cli_overrides(overrides: list[str]):
 
         # 5) Merge this small nested dict into the global result
         result = merge_dict(result, cur)
-        
+
     return result
+
 
 def _parse_value(raw: str):
     text = raw.strip()
@@ -149,10 +159,12 @@ def _parse_value(raw: str):
 
     return text
 
-def inject_env_vars(cfg: dict[str, any]):
+
+def inject_env_vars(cfg: dict[str, Any]):
     return _inject_env_vars_obj(cfg)
 
-def _inject_env_vars_obj(obj: any):
+
+def _inject_env_vars_obj(obj: Any):
 
     # Dict → recurse on values
     if isinstance(obj, dict):
@@ -171,12 +183,13 @@ def _inject_env_vars_obj(obj: any):
     # Anything else → leave as is
     return obj
 
+
 def _inject_env_vars_string(s: str) -> str:
     """Apply ${VAR} / ${VAR:-default} substitution to a single string."""
 
     def replacer(match: re.Match) -> str:
-        var_name = match.group(1)   # VAR
-        default = match.group(3)    # default (may be None)
+        var_name = match.group(1)  # VAR
+        default = match.group(3)  # default (may be None)
 
         if var_name in os.environ:
             return os.environ[var_name]
@@ -193,8 +206,10 @@ def _inject_env_vars_string(s: str) -> str:
 
     return _ENV_PATTERN.sub(replacer, s)
 
+
 def _resolve_paths(cfg: dict[str, Any], project_root: Path):
     return _resolve_paths_obj(cfg, project_root)
+
 
 def _resolve_paths_obj(obj: Any, project_root: Path):
     if isinstance(obj, dict):
@@ -205,35 +220,36 @@ def _resolve_paths_obj(obj: Any, project_root: Path):
             else:
                 resolved[key] = _resolve_paths_obj(value, project_root)
         return resolved
-    
+
     if isinstance(obj, list):
         return [_resolve_paths_obj(v, project_root) for v in obj]
     if isinstance(obj, tuple):
         return tuple(_resolve_paths_obj(v, project_root) for v in obj)
-    
+
     return obj
+
 
 def _resolve_single_path(path_str: str, project_root: Path):
     expanded = os.path.expanduser(path_str)
-    
+
     if os.path.isabs(expanded):
         return expanded
-    
+
     absolute = (project_root / expanded).resolve()
-    
+
     return str(absolute)
+
 
 def _is_path_key(key: str):
     key = key.lower()
-    
+
     if key in {"root", "dir", "path", "runs_root", "output_dir", "classes_file"}:
         return True
-    
+
     if key.endswith("_dir") or key.endswith("_root") or key.endswith("_path"):
         return True
-    
-    return False
 
+    return False
 
 
 # MACROS

@@ -1,0 +1,17 @@
+# Prior/Anchor box configuration for SSD 416x416 on VisDrone dataset
+
+priors:
+  image_size: [416, 416]
+  strides: [8, 16, 32, 64, 128, 208]
+  
+  aspect_ratios:
+  - [1.0, 0.5, 0.3333]
+  - [1.0, 0.5, 0.3333]
+  - [1.0, 0.5, 0.3333]
+  - [1.0, 0.5, 0.3333]
+  - [1.0, 0.5, 0.3333]
+  - [1.0, 0.5, 0.3333]
+
+  min_scale: 0.03
+  max_scale: 0.30
+  variances: [0.1, 0.2]

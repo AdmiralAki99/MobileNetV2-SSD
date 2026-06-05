@@ -1,0 +1,112 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPERIMENT: MobileNetV2-SSD on VisDrone with 416x416 input
+# This experiment tests the MobileNetV2-SSD model on the VisDrone dataset using a
+# larger input size of 416x416. It uses the same training configuration as the VOC
+# experiment to establish a baseline for future comparisons.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+experiment:
+  id: exp003
+  name: mobilenetv2_ssd_visdrone_416
+  description: |
+    MobileNetV2-SSD trained on VisDrone dataset with 416x416 input size. This experiment
+    serves as a baseline for future experiments on VisDrone, allowing us to compare the
+    impact of different backbones, input sizes, and training strategies.
+  author: akhilesh-warty
+  created: "2026-03-05"
+  tags:
+    - cloud
+    - mobilenetv2
+    - visdrone
+    - ssd
+    
+  enabled: true
+  priority: 200               # High priority - run first
+  depends_on: []
+
+infrastructure:
+  instance_type: g4dn.xlarge
+  spot: true
+  spot_max_price: 0.5
+  timeout_hours: 12
+  dynamodb_table: ml-experiment-ledger
+  region: us-east-1
+  
+  storage:
+    checkpoint_bucket: s3://akhilesh-ml-checkpoints
+    data_bucket: s3://akhilesh-ml-datasets
+    artifact_bucket: s3://akhilesh-ml-artifacts
+
+defaults:
+  backbone: base/backbones/mobilenetv2.yaml
+  train: base/train/default.yaml
+  eval: base/eval/visdrone_eval.yaml
+  logging: base/logging/default.yaml
+  checkpoint: base/checkpoint/default.yaml
+  heads: base/heads/ssd_head.yaml
+  priors: base/priors/ssd_vis_drone_416.yaml
+  loss: base/losses/ssd_loss.yaml
+  sampler: base/samplers/hard_negative.yaml
+  optimizer: base/optimizers/adamw_cosine.yaml
+  augmentation: base/augmentations/visdrone_augment.yaml
+  data: data/visdrone_416.yaml
+  model: base/models/
+
+
+input_size: [416, 416]
+num_classes: 11
+
+overrides:
+  train:
+    epochs: 200
+    seed: 1337
+  
+    # amp:
+    #   enabled: true
+    #   policy: mixed_float16
+    #   loss_scale: dynamic
+  
+  ema:
+    enabled: true
+    decay: 0.999
+    warmup_steps: 1000
+    update_every: 1
+
+  backbone:
+    grad_scale: 0.1
+  
+  scheduler:
+    base_lr: 0.001
+    total_steps: 40600 # (TRAIN_SAMPLES/BATCH_SIZE) * NUM_EPOCHS = (6471/32) = 203 *200 = 40,600
+    warmup:
+      steps: 500
+
+  data:
+    tfrecords:
+      enabled: true
+    train:
+      batch_size: 32      # Increased for A10G GPU (24GB memory)
+      repeat: false
+      # shuffle: true
+    val:
+      batch_size: 32
+
+  eval:
+    interval_epochs: 5
+    main_metric: voc_ap_50/mAP@0.50 
+
+    nms:
+      iou_threshold: 0.5
+      score_threshold: 0.01
+      max_detections_per_image: 100
+
+  checkpoint:
+    save_every_epochs: 10
+    keep_last_k: 3
+    save_best: true
+    monitor: val_map
+    mode: max
+
+  logging:
+    tensorboard:
+      enabled: true

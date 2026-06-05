@@ -4,10 +4,10 @@ import boto3
 from infrastructure.dynamodb_ledger import ExperimentLedger
 
 TABLE_NAME = "ml-experiment-ledger"
-REGION     = "us-east-1"
-EXP_ID     = "test_exp"
-FP         = "aabbccddee11"
-TIMESTAMP  = "20260222_000000"
+REGION = "us-east-1"
+EXP_ID = "test_exp"
+FP = "aabbccddee11"
+TIMESTAMP = "20260222_000000"
 
 
 @pytest.fixture(scope="module")
@@ -18,12 +18,14 @@ def ledger():
 @pytest.fixture(scope="module")
 def seeded_item(ledger):
     raw_table = boto3.resource("dynamodb", region_name=REGION).Table(TABLE_NAME)
-    raw_table.put_item(Item={
-        "experiment_id": EXP_ID,
-        "fingerprint":   FP,
-        "status":        "pending",
-        "priority":      50,
-    })
+    raw_table.put_item(
+        Item={
+            "experiment_id": EXP_ID,
+            "fingerprint": FP,
+            "status": "pending",
+            "priority": 50,
+        }
+    )
     yield
     raw_table.delete_item(Key={"experiment_id": EXP_ID, "fingerprint": FP})
 
@@ -59,7 +61,8 @@ def test_update_checkpoint_pointer(ledger, seeded_item):
 @pytest.mark.integration
 def test_mark_success_transitions_to_success(ledger, seeded_item):
     ledger.mark_success(
-        EXP_ID, FP,
+        EXP_ID,
+        FP,
         checkpoint_s3_path="s3://akhilesh-ml-checkpoints/test/ckpt",
         artifact_s3_path="s3://akhilesh-ml-artifacts/test/weights",
         best_epoch=20,

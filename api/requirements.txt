@@ -3,3 +3,6 @@ uvicorn[standard]
 boto3
 pyyaml
 python-dotenv
+sqlalchemy
+psycopg2-binary
+requests

@@ -1,0 +1,50 @@
+# configs/eval/default.yaml
+# "How do we run evaluation / NMS / metrics?"
+
+eval:
+  # Which split to evaluate on: usually same as data.val_split, but you can override if needed
+  dataset_split: "val"   # or "test"
+  input: [300, 300]   # H, W, C
+  
+
+  decode:
+    variances: [0.1, 0.2]
+    priors_format: "cxcywh"
+    output_format: "xyxy"
+    clip_boxes: true
+    boxes_normalized: true
+    use_sigmoid: false
+    root: "${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt"
+
+  # NMS parameters for post-processing detections
+  nms:
+    iou_threshold: 0.7
+    score_threshold: 0.9
+    max_detections_per_class: 50
+    max_detections_per_image: 50
+    per_class_top_k: 100
+
+  main_metric: "voc_ap_50"   # which metric to use for model selection
+  
+  # Evaluation metric configuration
+  metrics:
+    voc_ap_50:
+      type: "voc_ap"
+      iou_thresholds: [0.5,0.75]
+      use_07_metric: false
+
+    # voc_ap_50_95:
+    #   type: "voc_ap"
+    #   iou_thresholds: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+    #   use_07_metric: false
+
+    coco_map:
+      type: "coco_map"     # imagine we implement this later
+      iou_thresholds: [0.5, 0.75]
+      use_07_metric: false
+
+  # Optional: extra options for debug/sanity checks
+  visualization:
+    enabled: false
+    max_images: 16
+    output_dir: "eval_vis"    # relative; will be resolved to an absolute path

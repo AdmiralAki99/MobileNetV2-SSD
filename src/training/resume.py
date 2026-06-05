@@ -58,7 +58,6 @@ def discover_checkpoint(checkpoint_dir: Path, target_step: int | None = None):
     }
 
 
-
 def find_latest_run_by_fingerprint(runs_root: Path, fingerprint_short: str):
     runs_root = Path(runs_root)
 
@@ -130,7 +129,10 @@ def _get_nested(d: dict, key: str, default=None):
     return d
 
 
-def validate_checkpoint_compatibility(saved_config: dict[str, Any],current_config: dict[str, Any],):
+def validate_checkpoint_compatibility(
+    saved_config: dict[str, Any],
+    current_config: dict[str, Any],
+):
     warnings = []
     is_compatible = True
 
@@ -140,10 +142,7 @@ def validate_checkpoint_compatibility(saved_config: dict[str, Any],current_confi
         current_val = current_config.get(key)
 
         if saved_val != current_val:
-            warnings.append(
-                f"ARCHITECTURE MISMATCH '{key}': "
-                f"saved={saved_val}, current={current_val}"
-            )
+            warnings.append(f"ARCHITECTURE MISMATCH '{key}': " f"saved={saved_val}, current={current_val}")
             is_compatible = False
 
     # --- Check AMP config (special case — affects optimizer checkpoint structure) ---
@@ -161,10 +160,7 @@ def validate_checkpoint_compatibility(saved_config: dict[str, Any],current_confi
         is_compatible = False
 
     if saved_amp_enabled and current_amp_enabled and saved_amp_policy != current_amp_policy:
-        warnings.append(
-            f"AMP POLICY CHANGED: saved={saved_amp_policy}, "
-            f"current={current_amp_policy}"
-        )
+        warnings.append(f"AMP POLICY CHANGED: saved={saved_amp_policy}, " f"current={current_amp_policy}")
 
     # --- Check training keys (safe to differ — just warn) ---
     for key in _TRAINING_KEYS:
@@ -172,13 +168,9 @@ def validate_checkpoint_compatibility(saved_config: dict[str, Any],current_confi
         current_val = current_config.get(key)
 
         if saved_val != current_val:
-            warnings.append(
-                f"Training config changed '{key}': "
-                f"saved and current differ (this is safe)"
-            )
+            warnings.append(f"Training config changed '{key}': " f"saved and current differ (this is safe)")
 
     return is_compatible, warnings
-
 
 
 def load_saved_config(experiment_dir: Path) -> dict[str, Any] | None:
@@ -190,7 +182,6 @@ def load_saved_config(experiment_dir: Path) -> dict[str, Any] | None:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
-
 
 
 def collect_resumable_runs(runs_root: Path) -> list[dict[str, Any]]:
@@ -242,22 +233,21 @@ def collect_resumable_runs(runs_root: Path) -> list[dict[str, Any]]:
             ts_raw = ts_dir.name
             ts_display = ts_raw
             if len(ts_raw) == 15 and ts_raw[8] == "_":
-                ts_display = (
-                    f"{ts_raw[0:4]}-{ts_raw[4:6]}-{ts_raw[6:8]} "
-                    f"{ts_raw[9:11]}:{ts_raw[11:13]}"
-                )
+                ts_display = f"{ts_raw[0:4]}-{ts_raw[4:6]}-{ts_raw[6:8]} " f"{ts_raw[9:11]}:{ts_raw[11:13]}"
 
-            candidates.append({
-                "experiment_id": experiment_id,
-                "fingerprint_short": fingerprint_short,
-                "status": status,
-                "timestamp": ts_display,
-                "step": ckpt_result["step"],
-                "ckpt_path": ckpt_result["ckpt_path"],
-                "checkpoint_dir": ckpt_result["checkpoint_dir"],
-                "has_best_dir": ckpt_result["has_best_dir"],
-                "experiment_dir": experiment_dir,
-            })
+            candidates.append(
+                {
+                    "experiment_id": experiment_id,
+                    "fingerprint_short": fingerprint_short,
+                    "status": status,
+                    "timestamp": ts_display,
+                    "step": ckpt_result["step"],
+                    "ckpt_path": ckpt_result["ckpt_path"],
+                    "checkpoint_dir": ckpt_result["checkpoint_dir"],
+                    "has_best_dir": ckpt_result["has_best_dir"],
+                    "experiment_dir": experiment_dir,
+                }
+            )
 
     # Sort by timestamp descending (newest first) then by step descending
     candidates.sort(key=lambda c: (c["timestamp"], c["step"]), reverse=True)
@@ -294,7 +284,7 @@ def select_run_interactive(candidates: list[dict[str, Any]]) -> dict[str, Any] |
             f"  |  {c['status']}"
         )
 
-    print(f"\n  [0]  Start fresh (no resume)\n")
+    print("\n  [0]  Start fresh (no resume)\n")
 
     while True:
         try:
@@ -330,4 +320,3 @@ if __name__ == "__main__":
         print(f"\nSelected: {selected}")
     else:
         print("No resumable runs found")
-

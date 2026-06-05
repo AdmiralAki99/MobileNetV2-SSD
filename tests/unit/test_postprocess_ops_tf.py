@@ -4,7 +4,9 @@ from mobilenetv2ssd.models.ssd.ops.postprocess_tf import _decode_boxes, decode_a
 from mobilenetv2ssd.models.ssd.ops.box_ops_tf import cxcywh_toxyxy_core
 
 import pytest
+
 pytestmark = pytest.mark.unit
+
 
 def test_decode_boxes_zero_offsets_matches_prior_geometry():
     # If offsets are all zeros, decoded boxes should equal the prior boxes in xyxy form.
@@ -27,7 +29,8 @@ def test_decode_boxes_zero_offsets_matches_prior_geometry():
 
     tf.debugging.assert_equal(tf.shape(decoded), tf.shape(expected), message="Decoded shape mismatch")
     tf.debugging.assert_near(decoded, expected, atol=1e-6, message="Decoded boxes should match priors for zero offsets")
-    
+
+
 def test_decode_and_nms_softmax_classes():
     # In softmax mode (use_sigmoid=False), decode_and_nms shifts classes by +1
     # after combined_non_max_suppression, so classes should be >= 1 for valid detections.
@@ -76,9 +79,10 @@ def test_decode_and_nms_softmax_classes():
         message="Softmax classes should be 1-indexed (>= 1) after +1 shift",
     )
 
+
 def test_decode_and_nms_pre_nms_top_k():
     # pre_nms_top_k should restrict how many candidate anchors are passed into NMS.
-    B, N, C = 1, 5, 3
+    B, N, _C = 1, 5, 3
     pred_loc = tf.zeros((B, N, 4), dtype=tf.float32)
 
     priors = tf.constant(
@@ -97,11 +101,11 @@ def test_decode_and_nms_pre_nms_top_k():
     pred_logits = tf.constant(
         [
             [
-                [0.0, 0.5, 0.0],   # low
-                [0.0, 4.0, 0.0],   # very high
-                [0.0, 0.8, 0.0],   # medium
-                [0.0, 0.2, 0.0],   # low
-                [0.0, 3.5, 0.0],   # high
+                [0.0, 0.5, 0.0],  # low
+                [0.0, 4.0, 0.0],  # very high
+                [0.0, 0.8, 0.0],  # medium
+                [0.0, 0.2, 0.0],  # low
+                [0.0, 3.5, 0.0],  # high
             ]
         ],
         dtype=tf.float32,
@@ -129,10 +133,11 @@ def test_decode_and_nms_pre_nms_top_k():
         tf.constant([pre_nms_top_k], tf.int32),
         message="valid_detections should match pre_nms_top_k when NMS doesn't suppress",
     )
-    
+
+
 def test_decode_and_nms_min_box_size_filters():
     # min_box_size should zero-out boxes/scores smaller than threshold before NMS.
-    B, N, C = 1, 2, 3
+    B, N, _C = 1, 2, 3
 
     # Offsets are zero, so decoded boxes come directly from priors.
     pred_loc = tf.zeros((B, N, 4), dtype=tf.float32)
@@ -174,7 +179,9 @@ def test_decode_and_nms_min_box_size_filters():
         min_box_size=0.05,
     )
 
-    tf.debugging.assert_equal(valid, tf.constant([1], tf.int32), message="Only the large box should remain after min_box_size filtering")
+    tf.debugging.assert_equal(
+        valid, tf.constant([1], tf.int32), message="Only the large box should remain after min_box_size filtering"
+    )
 
     # The remaining box should match prior 1 geometry (in normalized xyxy).
     expected_large_xyxy = cxcywh_toxyxy_core(priors[1:2])[tf.newaxis, ...]  # [1,1,4]
@@ -190,10 +197,10 @@ def test_postprocess():
     pred_loc = tf.constant(
         [
             [  # batch 0
-                [ 0.0,  0.0,  0.0,  0.0],   # anchor 0
-                [ 0.2,  0.0,  0.0,  0.0],   # anchor 1
-                [ 0.0,  0.0,  0.5,  0.0],   # anchor 2
-                [ 0.0, -0.2,  0.0, -0.5],   # anchor 3
+                [0.0, 0.0, 0.0, 0.0],  # anchor 0
+                [0.2, 0.0, 0.0, 0.0],  # anchor 1
+                [0.0, 0.0, 0.5, 0.0],  # anchor 2
+                [0.0, -0.2, 0.0, -0.5],  # anchor 3
             ]
         ]
     )
@@ -201,10 +208,10 @@ def test_postprocess():
     pred_logits = tf.constant(
         [
             [  # batch 0
-                [0.1,  2.0,  0.0],   # anchor 0
-                [0.0,  0.5,  3.0],   # anchor 1
-                [0.5,  1.5, -1.0],   # anchor 2
-                [0.2, -0.5,  0.0],   # anchor 3
+                [0.1, 2.0, 0.0],  # anchor 0
+                [0.0, 0.5, 3.0],  # anchor 1
+                [0.5, 1.5, -1.0],  # anchor 2
+                [0.2, -0.5, 0.0],  # anchor 3
             ]
         ]
     )
@@ -218,52 +225,59 @@ def test_postprocess():
         ]
     )
 
-    variances      = tf.constant([0.1, 0.2])
-    score_thresh   = 0.3
-    iou_thresh     = 0.5
-    top_k          = 50 
+    variances = tf.constant([0.1, 0.2])
+    score_thresh = 0.3
+    iou_thresh = 0.5
+    top_k = 50
     max_detections = 3
-    use_sigmoid    = False 
-    image_meta     = {'image_height': 300, 'image_width': 300} 
-    
+    use_sigmoid = False
+    image_meta = {"image_height": 300, "image_width": 300}
+
+    # Boxes are returned in xyxy order (matches config output_format and production)
     expected_boxes = tf.constant(
-        [
-            [
-                [ 45.     , 196.2    , 105.     , 256.2    ],
-                [ 45.     ,  45.     , 105.     , 105.     ],
-                [195.     ,  41.84487, 255.     , 108.15513]
-            ]
-        ]
-    , dtype = tf.float32)
-    
-    expected_scores = tf.constant([[0.88349205, 0.77826834, 0.68967205]], dtype = tf.float32)
-    
+        [[[196.2, 45.0, 256.2, 105.0], [45.0, 45.0, 105.0, 105.0], [41.84487, 195.0, 108.15513, 255.0]]],
+        dtype=tf.float32,
+    )
+
+    expected_scores = tf.constant([[0.88349205, 0.77826834, 0.68967205]], dtype=tf.float32)
+
     expected_classes = tf.constant([[2, 1, 1]], dtype=tf.int32)
-    
+
     expected_detections = tf.constant([3], dtype=tf.int32)
-    
-    nmsed_boxes,nmsed_scores, nmsed_classes, valid_detections = decode_and_nms(pred_loc, pred_logits, priors, variances,score_thresh,iou_thresh,top_k,max_detections,image_meta,use_sigmoid)
-    
+
+    nmsed_boxes, nmsed_scores, nmsed_classes, valid_detections = decode_and_nms(
+        pred_loc,
+        pred_logits,
+        priors,
+        variances,
+        score_thresh,
+        iou_thresh,
+        top_k,
+        max_detections,
+        image_meta,
+        use_sigmoid,
+    )
+
     tf.debugging.assert_near(
         expected_boxes,
         nmsed_boxes,
         atol=1e-6,
         message="NMSed Boxes are not the same",
     )
-    
+
     tf.debugging.assert_near(
         expected_scores,
         nmsed_scores,
         atol=1e-6,
         message="NMSed Scores are not the same",
     )
-    
+
     tf.debugging.assert_equal(
         expected_classes,
         nmsed_classes,
         message="NMSed Classes are not the same",
     )
-    
+
     tf.debugging.assert_equal(
         expected_detections,
         valid_detections,

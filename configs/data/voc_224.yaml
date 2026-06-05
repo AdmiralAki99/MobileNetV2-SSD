@@ -1,0 +1,172 @@
+# configs/data/voc_224.yaml
+# "Which dataset and how is it preprocessed / augmented?"
+
+data:
+  dataset_name: "voc"
+  # Use an env var so this config works locally and on AWS:
+  #   DATA_ROOT=/home/you/datasets       (local)
+  #   DATA_ROOT=/mnt/data                (AWS)
+  root: "${DATA_ROOT:-datasets}/VOCdevkit/VOC2012"
+
+  train_split: "trainval"
+  val_split: "val"
+
+  # Input size can be shared with model.input_size or redundant here.
+  # You choose whether the pipeline uses model.input_size as the single source of truth.
+  input_size: [224, 224]
+
+  # Dataloader-ish settings (you'll map these to tf.data options)
+  num_workers: 4
+  shuffle_buffer: 1000
+  prefetch_batches: 2
+
+  # Standardizing the data
+  standardize:
+    boxes_format_in: "xyxy_pixels"     # e.g., COCO
+    boxes_format_out: "xyxy_pixels"    # canonical raw format
+    image_rgb: true
+    to_float32: true
+    scale: "0_1"                       # keep consistent for photometric or 0_255
+
+  # Preprocessing is done regardless of the train/val split
+  preprocess:
+    standardize_pipeline:
+      - to_float32
+      - scale_01
+    
+    pipeline:
+      - resize
+      # - sanitize_boxes
+      - normalize
+
+    params:
+      resize:
+        enabled: true
+        size: [300, 300]
+        mode: "stretch"             # override preprocess.resize.mode if you want
+        interp: "bilinear"
+
+      sanitize_boxes:
+        enabled: false
+        clip: true
+        min_size: 1
+        min_size_mode: "pixels"
+
+      normalize:
+        enabled: true
+        mean: [0.485, 0.456, 0.406]
+        std:  [0.229, 0.224, 0.225]
+
+  # Split specific collation settings
+  train:
+    batch_size: 3
+
+    padded_shapes: # TODO: Finalize the output signature in the Dataset class
+      image: [null, null, 3]
+      boxes: [null, 4]
+      labels: [null]
+      image_id: []
+      hash_signature: []
+      path: []
+
+    padding_values:
+      image: 0.0
+      boxes: -1.0 # TODO: Check how I implemented padding in the functions
+      labels: 0 # TODO: Check how I implemented padding in the functions
+
+    shuffle: false
+    prefetch: false
+    max_boxes: 100
+    repeat: false  # whether to repeat the dataset indefinitely
+
+    transform:
+      enabled: true
+      output_box_norm: true
+    
+      # Order matters: photometric -> geometry -> resize -> sanitize -> normalize
+      pipeline:
+        - photometric_distort
+        - random_expand
+        - random_iou_crop
+        - random_flip
+
+      params:
+        random_flip:
+          enabled: false
+          prob: 0.5
+          direction: "horizontal"     # horizontal | vertical (usually horizontal only)
+
+        random_iou_crop:
+          enabled: false
+          prob: 1.0                   # keep 1.0 if enabled; use crop_attempts/fallback below
+          min_iou_choices: [0.1, 0.3, 0.5, 0.7, 0.9, null]  # null = no constraint
+          min_scale: 0.3
+          max_scale: 1.0
+          max_attempts: 50
+          fallback: "original"        # original | allow_empty
+
+        random_expand:
+          enabled: false
+          prob: 0.5
+          max_ratio: 4.0              # classic SSD expand up to 4x
+          fill: "mean"                # mean | zeros | value
+          value: [0.485, 0.456, 0.406]  # if fill=value (in 0_1 space)
+
+        photometric_distort:
+          enabled: false
+          prob: 0.5
+          brightness: 0.125
+          contrast: [0.5, 1.5]
+          saturation: [0.5, 1.5]
+          hue: 0.05
+          random_order: true
+
+  val:
+    batch_size: 3
+
+    padding_values:
+      image: 0.0
+      boxes: -1.0 # TODO: Check how I implemented padding in the functions
+      labels: 0 # TODO: Check how I implemented padding in the functions
+
+    padded_shapes: # TODO: Finalize the output signature in the Dataset class
+      image: [null, null, 3]
+      boxes: [null, 4]
+      labels: [null]
+      image_id: []
+      hash_signature: []
+      path: []
+
+    shuffle: false
+    prefetch: true
+    max_boxes: 100
+
+    preprocess:
+      output_box_norm: true
+
+      standardize_pipeline:
+        - to_float32
+        - sanitize_boxes
+        - scale_01
+
+      pipeline:
+        - resize
+        - normalize
+
+      params:
+        resize:
+          enabled: true
+          size: [300, 300]
+          mode: "stretch"
+          interp: "bilinear"
+        sanitize_boxes:
+          enabled: true # TODO: Fix this to true after fixing the bug
+          clip: true
+          min_size: 1
+          min_size_mode: "pixels"
+        normalize:
+          enabled: true
+          mean: [0.485, 0.456, 0.406]
+          std:  [0.229, 0.224, 0.225]
+  # Optional: how labels/classes are loaded
+  classes_file: "${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt"  # relative to project root

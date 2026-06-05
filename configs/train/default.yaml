@@ -1,0 +1,153 @@
+# configs/train/voc_mnv2_baseline.yaml
+
+experiment:
+  name: "voc_mnv2_baseline"
+  description: "MobileNetV2-SSD baseline on PASCAL VOC 224x224"
+  tags:
+    - "ssd"
+    - "mobilenetv2"
+    - "voc"
+    - "baseline"
+
+# Which other configs to compose into this experiment
+include:
+  model_cfg: "configs/model/mobilenetv2_ssd_voc.yaml"
+  data_cfg:  "configs/data/voc_224.yaml"
+  eval_cfg:  "configs/eval/default.yaml"
+  deploy_cfg: "configs/deploy/mobilenetv2_ssd_voc_jetson.yaml"
+  engine_cfg: "configs/engine/default.yaml"
+
+# Purely training-related knobs (no paths here)
+train:
+  seed: 1337
+  device: "auto"        # e.g. "auto", "cpu", "gpu:0"
+
+  epochs: 50
+  eval_every: 1            # run validation every N epochs
+  batch_size: 3
+  grad_accum_steps: 1   # keep for future if you want gradient accumulation
+
+  ema:
+    enabled: true
+    decay: 0.9
+    warmup_steps: 0
+    update_every: 1
+    eval_use_ema: true
+
+  amp:
+    enabled: true
+    policy: "mixed_float16"               # Should account for the mixed precision change
+    loss_scale: "dynamic"                 # Scale Value (1024,2048, dynamic)
+    clip_unscaled_grads: true
+    force_fp32:                           # List of stuff to keep in high precision form
+      - loss_reduction
+      - box_encode_decode
+      - iou
+      - nms
+
+  optimizer:
+    name: "sgd"         # or "adamw", etc.
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 0.0005
+    nesterov: true
+
+  scheduler:
+    interval: "step"
+    name: "cosine_warmup"      # or "step", "multistep", etc.
+
+    base_lr: 0.001
+    min_lr: 0.00001
+
+    total_steps: 10000
+
+    warmup:
+      enabled: true
+      epochs: 5
+      steps: 10
+      start_factor: 0.1
+      end_factor: 1.0
+      mode: 'linear'
+
+    step: 
+      drop_every_epochs: 10
+      gamma: 0.1
+
+    multistep:
+      milestones_epochs: [30, 45]
+      gamma: 0.1
+
+  # Loss / training-specific knobs that are not strictly model structure
+  loss:
+    # Classification Loss Knobs
+    cls_loss_type: "softmax_ce"        # or "cross_entropy"
+    from_logits: true
+    ignore_index: -1
+    label_smoothing: 0.0  
+    use_sigmoid: false
+    class_weights: null
+
+    # Regression Loss Knobs
+    reg_loss_type: "smooth_l1"    # or "giou", "ciou"
+    smooth_l1_beta: 1.0
+    bbox_norm: "none"
+
+    # General Loss calculation Knobs
+    alpha: 1.0                    # weight for regression loss
+    gamma: 2.0                    # focal gamma (if used)
+    cls_weight: 1.0               # Classification weight in the final loss
+    reg_weight: 1.0               # Regression weight in the final loss
+    reduction: 'sum'
+
+    normalization:
+      type: "num_pos"
+      epsilon: 1e-6
+
+  sampler:
+    neg_pos_ratio: 3.0
+    min_neg: 0
+    max_neg: null
+
+  targets:
+    filters:
+      min_box_area: 0.0
+      clip_to_image: true
+      drop_invalid: true
+  
+  diagnostics: false
+
+checkpoint:
+  dir: "${CHKPT_ROOT:-checkpoints}"              # subdir inside the run dir
+  keep_last_k: 5                        # how many recent checkpoints to keep
+  save_every_steps: 500
+  save_every_epochs: 1            # Save after K epochs
+  save_last: true
+  save_best: true
+  monitor: "val_map"              # or "val_loss"
+  mode: "max"                     # "min" if monitoring loss                 
+
+
+logging:
+  runs_root: "${RUNS_ROOT:-runs}"   # base dir for all runs
+  run_name_suffix: ""               # optional extra tag, e.g. "debug"
+  log_interval_steps: 50            # print loss every N training steps
+
+  # Optional integration you can wire up later
+  wandb:
+    enabled: false
+    project: "mobilenetv2-ssd"
+    entity: null
+    group: null
+
+runtime:
+  num_workers: 4          # for data loading / tf.data parallelism hint
+  prefetch_batches: 2
+  mixed_precision: "none" # later: "fp16" / "bf16" if you add it
+  deterministic: false    # if true, you might enable extra determinism flags
+
+export:
+  save_final_checkpoint: true
+  save_best_checkpoint: true
+  export_saved_model: true   # TF SavedModel dir at end of training
+  export_onnx: false         # placeholder for future tooling
+  export_tflite: false       # placeholder for future tooling

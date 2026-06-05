@@ -1,10 +1,8 @@
 import tensorflow as tf
 import pytest
-import string
 
 from mobilenetv2ssd.models.ssd.ops.anchor_ops_tf import *
 
-import pytest
 pytestmark = pytest.mark.unit
 
 
@@ -121,7 +119,7 @@ def test_concatenate_priors_clips_to_unit_interval():
     layer = tf.constant(
         [
             [-0.1, 0.5, 0.2, 0.2],
-            [1.1,  0.5, 0.2, 0.2],
+            [1.1, 0.5, 0.2, 0.2],
         ],
         dtype=tf.float32,
     )

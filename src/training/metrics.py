@@ -1,8 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 import numpy as np
 import tensorflow as tf
+
 
 @dataclass
 class Detection:
@@ -10,22 +11,30 @@ class Detection:
     boxes: np.ndarray
     scores: np.ndarray
     labels: np.ndarray
-    
+
+
 @dataclass
 class GroundTruth:
     image_id: str
     boxes: np.ndarray
     labels: np.ndarray
-    
+
+
 @dataclass
 class ClassGroundTruth:
     boxes: np.ndarray
     detected: np.ndarray
-    
-    
+
+
 class MeanAveragePrecision:
-    def __init__(self, num_classes: int, iou_thresholds: list[float] | float = 0.5, style: Literal["voc", "coco"] = "voc", class_names: dict[int, str] | None = None):
-        
+    def __init__(
+        self,
+        num_classes: int,
+        iou_thresholds: list[float] | float = 0.5,
+        style: Literal["voc", "coco"] = "voc",
+        class_names: dict[int, str] | None = None,
+    ):
+
         self.num_classes = num_classes
         self.style = style
         self.class_names = class_names or {}
@@ -44,19 +53,23 @@ class MeanAveragePrecision:
 
     def update(self, predictions: list[dict], ground_truths: list[dict]):
         for prediction in predictions:
-            self._predictions.append(Detection(
-                image_id = self._to_str(prediction['image_id']),
-                boxes = np.asarray(prediction['boxes'], dtype = np.float32),
-                scores = np.asarray(prediction['scores'], dtype = np.float32),
-                labels = np.asarray(prediction['labels'], dtype = np.float32)
-            ))
-            
+            self._predictions.append(
+                Detection(
+                    image_id=self._to_str(prediction["image_id"]),
+                    boxes=np.asarray(prediction["boxes"], dtype=np.float32),
+                    scores=np.asarray(prediction["scores"], dtype=np.float32),
+                    labels=np.asarray(prediction["labels"], dtype=np.float32),
+                )
+            )
+
         for ground_truth in ground_truths:
-            self._ground_truths.append(GroundTruth(
-                image_id = self._to_str(ground_truth['image_id']),
-                boxes = np.asarray(ground_truth['boxes'], dtype = np.float32),
-                labels = np.asarray(ground_truth['labels'], dtype = np.float32)
-            ))
+            self._ground_truths.append(
+                GroundTruth(
+                    image_id=self._to_str(ground_truth["image_id"]),
+                    boxes=np.asarray(ground_truth["boxes"], dtype=np.float32),
+                    labels=np.asarray(ground_truth["labels"], dtype=np.float32),
+                )
+            )
 
     @staticmethod
     def _to_str(val):
@@ -65,8 +78,8 @@ class MeanAveragePrecision:
         return str(val)
 
     def _organize_ground_truths(self):
-        
-        by_class : dict[int, dict[str, GroundTruth]] = {}
+
+        by_class: dict[int, dict[str, GroundTruth]] = {}
 
         for ground_truth in self._ground_truths:
             for box, label in zip(ground_truth.boxes, ground_truth.labels):
@@ -80,15 +93,13 @@ class MeanAveragePrecision:
                 if ground_truth.image_id not in by_class[class_num]:
                     # Creating the place holders
                     by_class[class_num][ground_truth.image_id] = ClassGroundTruth(
-                        boxes = np.empty((0,4), dtype = np.float32),
-                        detected = np.empty((0,), dtype= bool)
+                        boxes=np.empty((0, 4), dtype=np.float32), detected=np.empty((0,), dtype=bool)
                     )
 
                 # It exists in the list by now
                 class_gt = by_class[class_num][ground_truth.image_id]
                 by_class[class_num][ground_truth.image_id] = ClassGroundTruth(
-                    boxes = np.vstack([class_gt.boxes, box.reshape(1,4)]),
-                    detected = np.append(class_gt.detected, False)
+                    boxes=np.vstack([class_gt.boxes, box.reshape(1, 4)]), detected=np.append(class_gt.detected, False)
                 )
 
         return by_class
@@ -117,20 +128,16 @@ class MeanAveragePrecision:
                 if class_index not in preds_by_class:
                     preds_by_class[class_index] = []
 
-                preds_by_class[class_index].append({
-                    'image_id': detection.image_id,
-                    'box': box,
-                    'score': float(score)
-                })
+                preds_by_class[class_index].append({"image_id": detection.image_id, "box": box, "score": float(score)})
 
         # Sorting by class index for easier debugging
         for class_index in preds_by_class:
-            preds_by_class[class_index].sort(key = lambda x: x['score'], reverse = True)
-        
+            preds_by_class[class_index].sort(key=lambda x: x["score"], reverse=True)
+
         return preds_by_class
 
     @staticmethod
-    def _ap_101_point(recall: np.ndarray, precision:np.ndarry):
+    def _ap_101_point(recall: np.ndarray, precision: np.ndarray):
         if len(recall) == 0:
             return 0.0
 
@@ -143,7 +150,7 @@ class MeanAveragePrecision:
                 precision_inter[index] = np.max(precision[valid_mask])
 
         return float(np.mean(precision_inter))
-    
+
     @staticmethod
     def _ap_voc(recall: np.ndarray, precision: np.ndarray):
 
@@ -158,9 +165,9 @@ class MeanAveragePrecision:
         AP = np.sum((mrec[index + 1] - mrec[index]) * mpre[index + 1])
         return float(AP)
 
-    def _format_results(self, AP: np.ndarray, num_positives: dict[int,int]):
+    def _format_results(self, AP: np.ndarray, num_positives: dict[int, int]):
         results = {}
-    
+
         valid_classes = [class_num for class_num in range(1, self.num_classes) if num_positives[class_num] > 0]
 
         if not valid_classes:
@@ -184,28 +191,34 @@ class MeanAveragePrecision:
                 results["AP@0.75"] = float(np.mean(AP_valid[:, index]))
         else:
             for iou_index, iou_threshold in enumerate(self.iou_thresholds):
-                mAP = float(np.mean(AP_valid[:,iou_index]))
+                mAP = float(np.mean(AP_valid[:, iou_index]))
                 results[f"mAP@{iou_threshold:.2f}"] = mAP
 
         for class_index in valid_classes:
             class_name = self.class_names.get(class_index, f"class_{class_index}")
             results[f"AP/{class_name}"] = float(AP[class_index, 0])
 
-        return results   
+        return results
 
-    def _compute_ap_for_class(self, predictions: list[dict], ground_truths: dict[str, ClassGroundTruth], num_positives: int, iou_threshold: float):
+    def _compute_ap_for_class(
+        self,
+        predictions: list[dict],
+        ground_truths: dict[str, ClassGroundTruth],
+        num_positives: int,
+        iou_threshold: float,
+    ):
 
         detected = {
-            image_id: np.zeros(len(class_gt.boxes), dtype = np.float32) for image_id, class_gt in ground_truths.items()
+            image_id: np.zeros(len(class_gt.boxes), dtype=np.float32) for image_id, class_gt in ground_truths.items()
         }
 
         num_preds = len(predictions)
 
-        TP = np.zeros(num_preds, dtype = np.float32)
-        FP = np.zeros(num_preds, dtype = np.float32)
+        TP = np.zeros(num_preds, dtype=np.float32)
+        FP = np.zeros(num_preds, dtype=np.float32)
 
         for index, prediction in enumerate(predictions):
-            image_id, box = prediction['image_id'], prediction['box']
+            image_id, box = prediction["image_id"], prediction["box"]
 
             if image_id not in ground_truths:
                 # If not predicted then its a false positive
@@ -234,12 +247,12 @@ class MeanAveragePrecision:
         FP_cumsum = np.cumsum(FP)
 
         recall = TP_cumsum / num_positives
-        precision = TP_cumsum/ np.maximum(TP_cumsum + FP_cumsum, 1e-6)
+        precision = TP_cumsum / np.maximum(TP_cumsum + FP_cumsum, 1e-6)
 
         if self.style == "coco":
             return self._ap_101_point(recall, precision)
         else:
-            return self._ap_voc(recall,precision)
+            return self._ap_voc(recall, precision)
 
     def compute(self):
         if not self._ground_truths:
@@ -253,12 +266,12 @@ class MeanAveragePrecision:
         # Organizing the prediction scores
         preds_by_class = self._organize_predictions()
 
-        AP = np.zeros((self.num_classes, len(self.iou_thresholds)), dtype = np.float32)
+        AP = np.zeros((self.num_classes, len(self.iou_thresholds)), dtype=np.float32)
 
         for class_index in range(1, self.num_classes):
             if num_positives[class_index] == 0:
                 continue
-                
+
             class_predictions = preds_by_class.get(class_index, [])
             if not class_predictions:
                 continue
@@ -266,11 +279,17 @@ class MeanAveragePrecision:
             class_gt = ground_truth_by_class.get(class_index, {})
 
             for iou_index, iou_threshold in enumerate(self.iou_thresholds):
-                ap = self._compute_ap_for_class(predictions = class_predictions, ground_truths = class_gt, num_positives = num_positives[class_index], iou_threshold = iou_threshold)
-                AP[class_index,iou_index] = ap
+                ap = self._compute_ap_for_class(
+                    predictions=class_predictions,
+                    ground_truths=class_gt,
+                    num_positives=num_positives[class_index],
+                    iou_threshold=iou_threshold,
+                )
+                AP[class_index, iou_index] = ap
 
         return self._format_results(AP, num_positives)
-  
+
+
 class MetricsCollection:
     def __init__(self, metrics: dict[str, MeanAveragePrecision]):
         self.metrics = metrics
@@ -288,9 +307,18 @@ class MetricsCollection:
 
     def reset(self):
         for metric in self.metrics.values():
-            metric.reset() 
-            
-def convert_batch_images_to_metric_format(pred_boxes: tf.Tensor, pred_scores: tf.Tensor, pred_labels: tf.Tensor, gt_boxes: tf.Tensor, gt_labels: tf.Tensor, gt_mask: tf.Tensor, image_ids: tf.Tensor):
+            metric.reset()
+
+
+def convert_batch_images_to_metric_format(
+    pred_boxes: tf.Tensor,
+    pred_scores: tf.Tensor,
+    pred_labels: tf.Tensor,
+    gt_boxes: tf.Tensor,
+    gt_labels: tf.Tensor,
+    gt_mask: tf.Tensor,
+    image_ids: tf.Tensor,
+):
     predictions = []
     ground_truths = []
 
@@ -302,34 +330,48 @@ def convert_batch_images_to_metric_format(pred_boxes: tf.Tensor, pred_scores: tf
         if isinstance(image_id, bytes):
             image_id = image_id.decode("utf-8")
 
-
-        predictions.append({"image_id": image_id, "boxes": pred_boxes[index].numpy(), "scores": pred_scores[index].numpy(), "labels": pred_labels[index].numpy()})
+        predictions.append(
+            {
+                "image_id": image_id,
+                "boxes": pred_boxes[index].numpy(),
+                "scores": pred_scores[index].numpy(),
+                "labels": pred_labels[index].numpy(),
+            }
+        )
 
         valid_mask = gt_mask[index].numpy()
-        ground_truths.append({"image_id": image_id, "boxes": gt_boxes[index].numpy()[valid_mask], "labels": gt_labels[index].numpy()[valid_mask]})
+        ground_truths.append(
+            {
+                "image_id": image_id,
+                "boxes": gt_boxes[index].numpy()[valid_mask],
+                "labels": gt_labels[index].numpy()[valid_mask],
+            }
+        )
 
-    return predictions, ground_truths 
+    return predictions, ground_truths
+
 
 def build_metrics_from_config(config: dict[str, Any]):
-    num_classes = config['num_classes']
+    num_classes = config["num_classes"]
     metrics_config = config.get("eval", {}).get("metrics", {})
 
     metrics = {}
-    
+
     for name, config in metrics_config.items():
         metric_type = config.get("type", "voc_ap")
         iou_thresholds = config.get("iou_thresholds", [0.5])
 
         style = "coco" if metric_type == "coco_map" else "voc"
 
-        metrics[name] = MeanAveragePrecision(num_classes = num_classes, iou_thresholds = iou_thresholds, style = style)
+        metrics[name] = MeanAveragePrecision(num_classes=num_classes, iou_thresholds=iou_thresholds, style=style)
 
     return MetricsCollection(metrics)
+
 
 def _box_iou_xyxy(box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
     """
     Compute IoU between a single box and an array of boxes.
-    
+
     Args:
         box:   shape (4,)  [x1, y1, x2, y2]
         boxes: shape (N,4) [x1, y1, x2, y2] for each box
