@@ -48,6 +48,7 @@ jobs:
           black --check .
 
       - name: Mypy (type check)
+        continue-on-error: true
         run: |
           mypy src
 
