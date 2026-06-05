@@ -54,7 +54,7 @@ jobs:
 
       - name: Pytest (unit)
         run: |
-          pytest -m unit -q
+          pytest tests/unit -m unit -q
 
   integration:
     name: Integration Tests (optional)
