@@ -3,7 +3,7 @@
 eval:
   eval_enabled: true
   dataset_split: val
-  input: [300, 300]
+  input: [416, 416]
 
   decode:
     variances: [0.1, 0.2]
@@ -12,11 +12,11 @@ eval:
     clip_boxes: true
     boxes_normalized: true
     use_sigmoid: false
-    classes_file: ${DATA_ROOT:-datasets}/VOCdevkit/labels/voc_labels.txt
+    classes_file: ${DATA_ROOT:-datasets}/VisDrone/visdrone_labels.txt
 
   nms:
     iou_threshold: 0.5
-    score_threshold: 0.9
+    score_threshold: 0.01
     max_detections_per_class: 50
     max_detections_per_image: 50
     per_class_top_k: 100

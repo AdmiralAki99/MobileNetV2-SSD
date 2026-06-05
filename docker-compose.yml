@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: etl_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://user:password@postgres:5432/etl_db
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__SMTP__SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      AIRFLOW__SMTP__SMTP_USER: ${SMTP_USER:-}
+      AIRFLOW__SMTP__SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      AIRFLOW__SMTP__SMTP_PORT: ${SMTP_PORT:-587}
+      AIRFLOW__SMTP__SMTP_SSL: ${SMTP_SSL:-false}
+      AIRFLOW__SMTP__SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      AIRFLOW__SMTP__SMTP_MAIL_FROM: ${OWNER_EMAIL:-airflow@localhost}
+      AIRFLOW_OWNER_EMAIL: ${OWNER_EMAIL:-airflow@localhost}
+      AIRFLOW_OWNER: ${AIRFLOW_OWNER:-airflow}
+      ETL_LOCAL_MODE: ${ETL_LOCAL_MODE:-true}
+      DATABASE_URL: ${ETL_DATABASE_URL:-}
+      AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: 300
+      AIRFLOW__WEBSERVER__WORKERS: 2
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-/mnt/d/dev/MobileNetV2-SSD}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./configs:/opt/airflow/configs
+      - ./videos:/opt/airflow/videos
+      - ./infrastructure:/app/infrastructure
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "1001"
+    command: standalone
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      ETL_DB_URL: ${ETL_DATABASE_URL:-}
+      AIRFLOW_DB_URL: postgresql://user:password@postgres:5432/etl_db
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  etl:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.etl
+    depends_on:
+      - postgres
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./configs:/app/configs
+      - ./videos:/app/videos
+      - ./src:/app/src
+    restart: "no"
+
+volumes:
+  postgres_data:

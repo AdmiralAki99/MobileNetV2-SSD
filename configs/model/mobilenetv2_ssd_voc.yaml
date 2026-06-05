@@ -1,0 +1,82 @@
+# configs/model/mobilenetv2_ssd_voc.yaml
+# "What are we training?" → SSD architecture + priors + model-specific knobs
+
+model:
+  name: "mobilenetv2-ssd"
+  backbone: "mobilenetv2"
+  width_mult: 1.0
+
+  num_classes: 21            # VOC 20 classes + background (depending on your setup)
+  input_size: [300, 300, 3]     # H, W
+
+  # Which backbone feature maps feed into SSD heads (names are up to your implementation)
+  ssd:
+    feature_maps: 
+      backbone_features: ["C3", "C4", "C5"]   # example feature map names
+      extra_base: "C5"
+
+      extra_levels:
+       - name: "P6"
+         out_channels: 256
+         stride: 2
+         kernel_size: 3
+       - name: "P7"
+         out_channels: 256
+         stride: 2
+         kernel_size: 3
+       - name: "P8"
+         out_channels: 128
+         stride: 2
+         kernel_size: 3
+
+  # Priors / anchor generator settings
+  priors:
+    image_size: [300, 300]
+    strides: [8, 16, 32, 64, 128, 224]   # one per feature map
+
+    # Aspect ratios per feature map (example only)
+    aspect_ratios:
+      - [1.0, 2.0, 0.5]
+      - [1.0, 2.0, 0.5, 3.0, 0.3333]
+      - [1.0, 2.0, 0.5, 3.0, 0.3333]
+      - [1.0, 2.0, 0.5]
+      - [1.0, 2.0, 0.5]
+      - [1.0, 2.0, 0.5]
+
+    # Optional: extra scale knobs if your builder uses them
+    min_scale: 0.2
+    max_scale: 0.95
+    variances: [0.1,0.2]
+
+  # Matcher / sampler knobs that are tightly tied to how the model’s priors work
+  matcher:
+    iou_threshold_pos: 0.5
+    iou_threshold_neg: 0.4
+    allow_low_quality_matches: false
+    center_in_gt: false
+
+  sampler:
+    neg_pos_ratio: 3.0
+    min_neg: 0
+    max_neg: null 
+
+  # Detection head structure (classification & regression)
+  heads:
+    localization:
+      norm_cfg: "batch_norm"          # how to normalize head convs
+      head_type: "conv3x3"            # shape of the head blocks
+      intermediate_channels: 256      # example: extra conv channels before prediction
+      squeeze_ratio: 1.0              # for any squeeze-excite you might add later
+
+    classification:
+      norm_cfg: "batch_norm"
+      head_type: "conv3x3"
+      intermediate_channels: 256
+      squeeze_ratio: 1.0
+      use_sigmoid_cls: false          # softmax-style classification vs sigmoid
+
+  # Any model-level loss preferences (structure-level, not training schedule)
+  loss:
+    cls_loss_type: "focal"          # or "cross_entropy"
+    reg_loss_type: "smooth_l1"      # or "giou", "ciou"
+    background_class_weight: 1.0

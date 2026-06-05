@@ -1,0 +1,15 @@
+# configs/logging.yaml
+# Logger configuration for training jobs
+
+engine:
+  # Base directory for all logs
+  logging:
+    log_dir: "${LOG_ROOT:-logs}"
+  
+    # Enable/disable logging outputs
+    tensorboard: true
+    console: true
+    file: true
+  
+    # Minimum log level: debug, info, warning, error
+    level: "info"

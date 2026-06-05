@@ -1,0 +1,109 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPERIMENT: Baseline MobileNetV2-SSD on VOC
+# Standard configuration to establish baseline metrics
+# ═══════════════════════════════════════════════════════════════════════════════
+
+experiment:
+  id: exp002
+  name: mobilenetv2_ssd_cloud_run
+  description: |
+    Experiment to run the MobileNetV2-SSD on AWS.
+    Uses standard SSD augmentation pipeline and AdmaW with cosine warmup.
+    This establishes reference metrics for future experiments.
+  author: akhilesh-warty
+  created: "2026-02-18"
+  tags:
+    - cloud
+    - mobilenetv2
+    - voc
+    
+  enabled: true
+  priority: 200               # High priority - run first
+  depends_on: []
+
+infrastructure:
+  instance_type: g5.xlarge    # A10G GPU - comparable to RTX 4070
+  spot: true
+  spot_max_price: 0.5
+  timeout_hours: 12
+  dynamodb_table: ml-experiment-ledger
+  region: us-east-1
+  
+  storage:
+    checkpoint_bucket: s3://akhilesh-ml-checkpoints
+    data_bucket: s3://akhilesh-ml-datasets
+    artifact_bucket: s3://akhilesh-ml-artifacts
+
+defaults:
+  backbone: base/backbones/mobilenetv2.yaml
+  train: base/train/default.yaml
+  eval: base/eval/default.yaml
+  logging: base/logging/default.yaml
+  checkpoint: base/checkpoint/default.yaml
+  heads: base/heads/ssd_head.yaml
+  priors: base/priors/ssd_300.yaml
+  loss: base/losses/ssd_loss.yaml
+  sampler: base/samplers/hard_negative.yaml
+  optimizer: base/optimizers/adamw_cosine.yaml
+  augmentation: base/augmentations/ssd_augment.yaml
+  data: data/voc.yaml
+  model: base/models/
+
+
+input_size: [300, 300]
+num_classes: 21
+
+overrides:
+  train:
+    epochs: 200
+    seed: 1337
+  
+    # amp:
+    #   enabled: true
+    #   policy: mixed_float16
+    #   loss_scale: dynamic
+  
+  ema:
+    enabled: true
+    decay: 0.999
+    warmup_steps: 1000
+    update_every: 1
+
+  backbone:
+    grad_scale: 0.1
+  
+  scheduler:
+    base_lr: 0.001
+    total_steps: 72200 # (TRAIN_SAMPLES/BATCH_SIZE) * NUM_EPOCHS = (11540/32) = 361 *200 = 72,200
+    warmup:
+      steps: 500
+
+  data:
+    tfrecords:
+      enabled: true
+    train:
+      batch_size: 32      # Increased for A10G GPU (24GB memory)
+      repeat: false
+      shuffle: true
+    val:
+      batch_size: 32
+
+  eval:
+    interval_epochs: 5
+    main_metric: voc_ap_50/mAP@0.50 
+
+    nms:
+      iou_threshold: 0.5
+      score_threshold: 0.01
+      max_detections_per_image: 100
+
+  checkpoint:
+    save_every_epochs: 10
+    keep_last_k: 3
+    save_best: true
+    monitor: val_map
+    mode: max
+
+  logging:
+    tensorboard:
+      enabled: true

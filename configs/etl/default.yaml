@@ -1,0 +1,49 @@
+etl:
+  videos:
+    input_dir: "videos"
+    s3:
+      bucket: "akhilesh-ml-datasets"
+      input_prefix: "videos/raw"
+      output_prefix: "videos/shards"
+    extensions: [".mp4", ".avi", ".mkv"]
+
+  sampling:
+    stride_frames: 30
+    scene_change_threshold: 0.35
+    max_frames_per_video: 100
+
+  models:
+    "device": "cpu"
+    "yolo_model":
+      model_name: "yolov8"
+      confidence_threshold: 0.25
+      weights_path: "yolov8m.pt"
+    "rt_detr_model":
+      model_name: "rt_detr"
+      confidence_threshold: 0.25
+      weights_path: "rtdetr-l.pt"
+    "grounding_dino_model":
+      model_name: "grounding_dino"
+      confidence_threshold: 0.25
+      model_id: "IDEA-Research/grounding-dino-tiny"
+      text_prompt: "pedestrian . people . bicycle . car . van . truck . tricycle . awning tricycle . bus . motor"
+
+  consensus:
+    min_votes: 2 
+    iou_threshold: 0.4
+
+  output:
+    tfrecords_dir: "s3://akhilesh-ml-datasets/videos/shards"
+    shard_size: 1000
+
+  database:
+    url: "postgresql://user:password@postgres:5432/etl_db"
+
+  ray:
+    mode: "local"
+    dashboard_url: "http://localhost:8265"
+    num_cpus: 4 
+    num_gpus: 1
+    num_workers: 1
+    max_retries: 3
+    retry_delay: 5

@@ -1,0 +1,43 @@
+# Data augmentation pipeline for SSD training
+
+augmentation:
+  enabled: true
+  output_box_format: xyxy_normalized
+
+  pipeline:
+    - photometric_distort
+    - random_expand
+    - random_iou_crop
+    - random_flip
+
+  photometric_distort:
+    enabled: true
+    prob: 0.5
+    brightness: 0.125
+    contrast: [0.5, 1.5]
+    saturation: [0.5, 1.5]
+    hue: 0.05
+    random_order: true
+
+  random_expand:
+    enabled: true
+    prob: 0.5
+    max_ratio: 4.0
+    fill: mean
+    fill_value: [0.485, 0.456, 0.406]
+
+  random_iou_crop:
+    enabled: true
+    prob: 1.0
+    min_iou_choices: [0.1, 0.3, 0.5, 0.7, 0.9, null]
+    min_scale: 0.3
+    max_scale: 1.0
+    min_aspect_ratio: 0.5
+    max_aspect_ratio: 2.0
+    max_attempts: 50
+    fallback: original
+
+  random_flip:
+    enabled: true
+    prob: 0.5
+    direction: horizontal
