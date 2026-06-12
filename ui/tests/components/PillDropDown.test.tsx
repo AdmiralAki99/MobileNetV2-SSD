@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { PillDropdown } from '../../src/components/PillDropdown'
+import { PillDropdown } from '../../src/components/PillDropDown'
 
 const options = ['us-east-1', 'us-west-2', 'ap-southeast-1']
 
