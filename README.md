@@ -34,6 +34,10 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
     - [S3 integration](#s3-integration)
     - [EC2 spot training with Terraform](#ec2-spot-training-with-terraform)
     - [Experiment Ledger (DynamoDB)](#experiment-ledger-dynamodb)
+  - [Dashboard](#dashboard)
+    - [Views](#views)
+    - [Running the dashboard](#running-the-dashboard)
+    - [Frontend tests](#frontend-tests)
   - [Testing](#testing)
   - [Notebook-Driven Development](#notebook-driven-development)
   - [Deployment](#deployment)
@@ -174,8 +178,16 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 ├── notebooks/                  # Notebook-driven development (see below)
 ├── dags/
 │   └── etl_pipeline.py         # Airflow DAG: schedule, orchestrate, notify
+├── ui/                         # Dashboard frontend
+│   ├── src/                    #   React + TypeScript components (Vite)
+│   │   ├── components/         #     Pipeline, Metrics, ETL, Ops, Deploy, Config views
+│   │   └── api/                #     Typed fetch client + usePolling hook
+│   ├── tests/                  #   Jest + React Testing Library (~160 tests)
+│   ├── package.json
+│   └── tsconfig.json
 ├── docker/
-│   └── Dockerfile.etl          # ETL worker image (PyTorch + ultralytics + TF + Ray)
+│   ├── Dockerfile.etl          # ETL worker image (PyTorch + ultralytics + TF + Ray)
+│   └── Dockerfile.dashboard    # Multi-stage: Node (Vite build) + Python (FastAPI + static)
 ├── Dockerfile                  # TF 2.17-gpu training image
 ├── Dockerfile.tensorboard      # TensorBoard S3-sync image
 ├── docker-compose.yml          # Training, ETL, Airflow, Postgres, TensorBoard
@@ -319,6 +331,8 @@ Two container images are provided:
 |-------|------|---------|
 | `Dockerfile` | `tensorflow/tensorflow:2.17.0-gpu` | Training with GPU support |
 | `Dockerfile.tensorboard` | — | TensorBoard syncing logs from S3 |
+| `docker/Dockerfile.dashboard` | Node 22 + Python 3.12 | Vite frontend build + FastAPI dashboard server |
+| `docker/Dockerfile.etl` | PyTorch + ultralytics | ETL worker (YOLOv8, RT-DETR, Grounding DINO, Ray) |
 
 ### Parallel experiments with Docker Compose
 
@@ -581,6 +595,48 @@ etl:
 
 ---
 
+## Dashboard
+
+A React + TypeScript MLOps dashboard served by the FastAPI backend. It provides live visibility into experiments, metrics, ETL pipeline data, Airflow DAG runs, and deployment status — all from a single URL.
+
+### Views
+
+| View | Data source | Description |
+|------|------------|-------------|
+| Pipeline | DynamoDB | Experiment list with status, artifacts, instance info, and export actions |
+| Metrics | DynamoDB / mock | Loss curves, mAP curve, per-class AP, confusion matrix, detection samples |
+| ETL | RDS (PostgreSQL) | Video table, class distribution, frame inspector with model vote breakdown |
+| Ops | RDS (Airflow DB) + EC2 | Airflow DAG graph, task table, Ray cluster status, run history |
+| Deploy | — | CI/CD pipeline stages, release history |
+| Config | DynamoDB | YAML config builder with live preview and experiment launch |
+
+### Running the dashboard
+
+```bash
+# Copy and configure credentials
+cp .env.example .env   # fill in AWS creds
+
+# Start the dashboard and its Postgres dependency
+docker compose up dashboard postgres
+# → http://localhost:8000
+```
+
+The dashboard container is a two-stage build: Node 22 compiles the Vite frontend, then Python 3.12 serves both the API and the compiled static files.
+
+### Frontend tests
+
+The UI has ~160 Jest tests covering all components:
+
+```bash
+cd ui
+npm install
+npm test
+```
+
+Tests use React Testing Library + jsdom with mocked API calls. No browser or running server required.
+
+---
+
 ## Testing
 
 ```bash
@@ -751,6 +807,6 @@ Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), image/webcam inference CLI, multi-model ETL pipeline (YOLOv8 + RT-DETR + Grounding DINO consensus), Airflow DAG orchestration with PostgreSQL metadata tracking, TFRecord output, and automated HTML email reporting.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), image/webcam inference CLI, multi-model ETL pipeline (YOLOv8 + RT-DETR + Grounding DINO consensus), Airflow DAG orchestration with PostgreSQL metadata tracking, TFRecord output, automated HTML email reporting, and React + TypeScript MLOps dashboard with ~160 Jest tests.
 
 **Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration, VisDrone fine-tuning on ETL-generated datasets.

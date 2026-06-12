@@ -1,0 +1,66 @@
+:root {
+  --bg-primary: #060a09;
+  --bg-secondary: #0c1110;
+  --bg-surface: #141918;
+  --bg-elevated: #1c2120;
+  --bg-pill: #222827;
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-medium: rgba(255,255,255,0.12);
+  --text-primary: #e8eae9;
+  --text-secondary: #7a7f7e;
+  --text-tertiary: #494e4d;
+  --accent: oklch(0.72 0.17 165);
+  --danger: #e84855;
+  --warning: #e88548;
+  --success: #65c16a;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,0.1); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(255,255,255,0); }
+}
+@keyframes barGrow {
+  from { transform: scaleY(0); transform-origin: bottom; }
+  to   { transform: scaleY(1); transform-origin: bottom; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+input[type=range] { height: 4px; border-radius: 4px; outline: none; border: none; background: rgba(255,255,255,0.09); }
+input[type=range]::-webkit-slider-thumb { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; }
+
+option { background: #1c2120; color: #e8eae9; }
+
+button { transition: all 0.2s ease; }
+button:hover { filter: brightness(1.15); }
+button:active { transform: scale(0.96); }
+
+body::after {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.4;
+}

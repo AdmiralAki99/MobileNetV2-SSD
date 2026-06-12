@@ -1,6 +1,8 @@
 import { StatTile } from './StatTile'
 import { LineChart } from './LineChart'
 import { ClassAPChart } from './ClassAPChart'
+import { ConfusionMatrix } from './ConfusionMatrix'
+import { DetectionCard } from './DetectionCard'
 import {
   MOCK_TRAIN_LOSS, MOCK_VAL_LOSS, MOCK_MAP_CURVE,
   MOCK_CLASS_AP, MOCK_CONF, MOCK_IMAGES,
@@ -13,7 +15,7 @@ interface MetricsData {
   map_curve?: number[]
   class_ap?: Record<string, number>
   conf_mat?: number[][]
-  images?: unknown[]
+  images?: { id: number | string; label: string; boxes: { x: number; y: number; w: number; h: number; cls: string; score: number }[] }[]
 }
 
 interface Props {
@@ -27,6 +29,9 @@ export const MetricsView = ({ metricsData, selectedExp }: Props) => {
   const valLoss   = d.val_loss   ?? MOCK_VAL_LOSS
   const mapCurve  = d.map_curve  ?? MOCK_MAP_CURVE
   const classAP   = d.class_ap   ?? MOCK_CLASS_AP
+  const confMat  = d.conf_mat ?? MOCK_CONF
+  const images   = d.images   ?? MOCK_IMAGES
+
 
   const bestMAP    = Math.max(...mapCurve)
   const bestEpoch  = mapCurve.indexOf(bestMAP) + 1
@@ -58,7 +63,21 @@ export const MetricsView = ({ metricsData, selectedExp }: Props) => {
           series={[{ label: 'mAP', data: mapCurve }]} />
       </div>
 
-      <ClassAPChart data={classAP} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 14, alignItems: 'start' }}>
+        <ClassAPChart data={classAP} />
+        <ConfusionMatrix matrix={confMat} />
+      </div>
+
+      <div data-testid="detection-samples" style={{ padding: '20px 22px', borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Detection Samples</span>
+          <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>epoch 200 · val set · hover boxes for score</span>
+        </div>
+        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+          {images.map(img => <DetectionCard key={img.id} img={img} />)}
+        </div>
+      </div>
+
     </div>
   )
 }
