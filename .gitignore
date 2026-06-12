@@ -1,6 +1,10 @@
 # Environment files (AWS credentials)
 .env
 
+# Frontend build artifacts
+ui/node_modules/
+ui/dist/
+
 # Terraform — sensitive state and local config
 infrastructure/terraform.tfvars
 infrastructure/terraform.tfstate

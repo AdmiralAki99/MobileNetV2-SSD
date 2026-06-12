@@ -27,4 +27,4 @@ def health():
 
 
 # Mouting the UI
-app.mount("/", StaticFiles(directory="ui", html=True), name="ui")
+app.mount("/", StaticFiles(directory="ui/dist", html=True), name="ui")
