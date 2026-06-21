@@ -709,7 +709,7 @@ def execute_training():
     args = None
     exit_code = 0
     training_result = None
-
+    
     try:
         args = parse_args()
 
@@ -727,67 +727,53 @@ def execute_training():
 
         traceback.print_exc()
     finally:
+        if args is not None:
+            try:
+                config = load_config(args['experiment_path'])
+                fingerprint = compute_fingerprint(config=config, git_commit=args.get("git_commit"))
+                experiment_id = config.get("experiment",{}).get("id","exp")
+                ledger = build_dynamodb_ledger(config=config, logger= None)
+                state = ledger.get_experiment_state(experiment_id=experiment_id, fingerprint=fingerprint.short) or {}
+                
+                if state.get("status") == "running" and state.get("ec2_instance") == get_ec2_instance_id():
+                    if exit_code == 0 and training_result is not None:
+                        ledger.mark_success(
+                            experiment_id= experiment_id,
+                            fingerprint= fingerprint.short,
+                            checkpoint_s3_path= state.get("checkpoint_s3_path",""),
+                            artifact_s3_path="", 
+                            best_epoch=0,
+                            total_steps= training_result.get("global_step",0),
+                            best_metric= float(training_result.get("best_metric",0.0))
+                        )
+                    else:
+                        reason = "spot_preemption" if exit_code >= 128 else "training_error"
+                        ledger.mark_failure(
+                            experiment_id= experiment_id,
+                            fingerprint= fingerprint.short,
+                            checkpoint_s3_path= state.get("checkpoint_s3_path", ""),
+                            total_steps= state.get("total_steps", 0),
+                            reason= reason
+                        )
+            except Exception:
+                traceback.print_exc()
+            
         if framework_opts is not None:
             experiment_name = framework_opts.config.get("experiment", {}).get("id", "exp")
             experiment_subdir = f"{experiment_name}_{framework_opts.fingerprint.short}"
-
-            # local paths are absolute
             run_root = Path(framework_opts.config["run"]["root"])
             experiment_directory = run_root / experiment_subdir
             status_path = experiment_directory / "status.json"
-
             with open(status_path, "w") as file:
-                json.dump({"status": "success" if exit_code == 0 else "failed"}, file)
-
-            # Now handling the ledger
-            if framework_opts.experiment_ledger is not None and framework_opts.ledger_claimed:
-                # The experiment was claimed and there is a ledger
-                experiment_id = framework_opts.config.get("experiment", {}).get("id", "exp")
-                fingerprint_short = framework_opts.fingerprint.short
-
-                # Getting the state of the experiment once more
-                current_state = framework_opts.experiment_ledger.get_experiment_state(
-                    experiment_id=experiment_id, fingerprint=fingerprint_short
-                )
-                checkpoint_s3_path = (current_state or {}).get("checkpoint_s3_path", "")
-                total_steps = (current_state or {}).get("total_steps", framework_opts.global_step)
-                # Now checking the exit code
-                if exit_code == 0 and training_result is not None:
-                    # Marking the experiment a success
-                    framework_opts.experiment_ledger.mark_success(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint_short,
-                        checkpoint_s3_path=checkpoint_s3_path,
-                        artifact_s3_path="",
-                        best_epoch=0,
-                        total_steps=training_result.get("global_step", 0),
-                        best_metric=float(training_result.get("best_metric", 0.0)),
-                    )
-
-                    # Logging the experiment a sucess
-                    framework_opts.logger.info(f"Ledger: marked {experiment_id} as success")
-                else:
-                    # The experiment failed so the reason needs to be given
-                    reason = "spot_preemption" if exit_code >= 128 else "training_error"
-                    framework_opts.experiment_ledger.mark_failure(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint_short,
-                        checkpoint_s3_path=checkpoint_s3_path,
-                        total_steps=total_steps,
-                        reason=reason,
-                    )
-
-            # Write metric_history.json to disk before S3 upload
+                json.dump({"status":"success" if exit_code == 0 else "failed"}, file)
+                
             framework_opts.logger.save_metric_history()
-
             if framework_opts.s3_client is not None:
-                # s3_sub_prefix is always relative, derived from actual directory name
                 run_root_name = run_root.name
                 s3_sub_prefix = f"{run_root_name}/{experiment_subdir}"
                 framework_opts.s3_client.upload_directory(local_dir=experiment_directory, s3_sub_prefix=s3_sub_prefix)
-
             framework_opts.logger.close()
-
+            
         handler.unregister()
 
     return exit_code

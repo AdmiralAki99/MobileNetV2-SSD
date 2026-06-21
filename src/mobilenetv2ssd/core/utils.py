@@ -391,7 +391,15 @@ def draw_bounding_boxes(
     if dataset_name == "voc":
         dataset_root = Path(dataset_root)
         image_file = dataset_root / "JPEGImages" / f"{image_id.numpy().decode()}.jpg"
-        original_image = Image.open(image_file)
+        if image_file.exists():
+            original_image = Image.open(image_file)
+        elif image_tensor is not None:
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img_np = np.clip(image_tensor.numpy() * std + mean, 0, 1)
+            original_image = Image.fromarray((img_np * 255).astype(np.uint8))
+        else:
+            return None
     elif dataset_name in ("vis_drone", "visdrone"):
         image_id_str = image_id.numpy().decode()
         dataset_root = Path(dataset_root)
