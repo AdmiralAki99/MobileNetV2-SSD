@@ -1,17 +1,23 @@
+import os
+import requests
 import subprocess
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
-from ..services.ec2 import describe_instance, stop_training
-
 from pydantic import BaseModel
+
+from ..services.ec2 import describe_instance, stop_training
+from ..services.ledger import get_ledger
+from ..config import EXPERIMENT_BUCKET, INFRA_DIR
+
+AIRFLOW_URL  = os.getenv("AIRFLOW_URL", "http://airflow:8080")
+AIRFLOW_USER = os.getenv("AIRFLOW_USER", "admin")
+AIRFLOW_PASS = os.getenv("AIRFLOW_PASSWORD", "")
 
 
 class LaunchRequest(BaseModel):
     experiment_id: str
     fingerprint: str
-    config_filename: str
-
-
+    
 class StopRequest(BaseModel):
     instance_id: str
     experiment_id: str
@@ -20,96 +26,39 @@ class StopRequest(BaseModel):
 
 router = APIRouter()
 
-
 @router.post("/launch")
 def launch_training(req: LaunchRequest):
-
-    cmd_directory = Path(__file__).parent.parent.parent / "infrastructure"
-    try:
-        # First trying to create a workspace for the experiment
-        try:
-            result = subprocess.run(
-                args=["terraform", "workspace", "new", f"{req.experiment_id}_{req.fingerprint}"],
-                cwd=cmd_directory,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except Exception:
-            pass
-        # Now selecting that workspace, if it already existed then the error is eaten
-        result = subprocess.run(
-            args=["terraform", "workspace", "select", f"{req.experiment_id}_{req.fingerprint}"],
-            cwd=cmd_directory,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        result = subprocess.run(
-            args=[
-                "terraform",
-                "apply",
-                "-auto-approve",
-                "-var",
-                f"experiment_config=../configs/experiments/{req.config_filename}",
-            ],
-            cwd=cmd_directory,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        return {"status": 200, "message": f"Subprocess sucessfully executed with {result.stdout}!"}
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=e.stderr)
+    response = requests.post(
+        f"{AIRFLOW_URL}/api/v1/dags/training_pipeline/dagRuns",
+        auth=(AIRFLOW_USER, AIRFLOW_PASS),
+        json={"conf":{"experiment_id": req.experiment_id, "fingerprint": req.fingerprint}}
+    )
+    
+    response.raise_for_status()
+    return {
+        "status": 200,
+        "dag_run_id": response.json()['dag_run_id']
+    }
+        
 
 
 @router.post("/stop")
 def stop_experiment(req: StopRequest):
 
-    cmd_directory = Path(__file__).parent.parent.parent / "infrastructure"
+    cmd_directory = INFRA_DIR
     try:
-
-        # Stopping the docker container from running
+        # Stop the training container on the instance
         stop_training(req.instance_id)
 
-        # Now selecting that workspace
         result = subprocess.run(
-            args=["terraform", "workspace", "select", f"{req.experiment_id}_{req.fingerprint}"],
+            args=["terraform", "destroy", "-auto-approve", "-target=aws_ec2_fleet.training"],
             cwd=cmd_directory,
             check=True,
             capture_output=True,
             text=True,
         )
 
-        # Deleting that workspace
-        result = subprocess.run(
-            args=["terraform", "destroy", "-auto-approve"],
-            cwd=cmd_directory,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        # Swapping to the default values
-        result = subprocess.run(
-            args=["terraform", "workspace", "select", "default"],
-            cwd=cmd_directory,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        result = subprocess.run(
-            args=["terraform", "workspace", "delete", f"{req.experiment_id}_{req.fingerprint}"],
-            cwd=cmd_directory,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        return {"status": 200, "message": f"Subprocess sucessfully executed with {result.stdout}!"}
+        return {"status": 200, "message": f"Instance torn down: {result.stdout}"}
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=e.stderr)
 

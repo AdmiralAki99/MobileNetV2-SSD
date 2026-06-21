@@ -1,4 +1,7 @@
 import type { EtlStats, EtlVideo, EtlFrame, EtlAnnotation } from '../components/etl/etlTypes'
+import type { ConfigLibrary, RegisterRequest, RegisterResponse } from '../components/create/createTypes'
+
+
 
 const API_BASE = ''
 
@@ -39,4 +42,10 @@ export const launchTraining = (req: unknown) => apiPost('/api/training/launch', 
 export const stopTraining = (req: unknown) => apiPost('/api/training/stop', req)
 export const exportSavedModel = (req: unknown) => apiPost('/api/export/savedmodel', req)
 export const exportOnnx = (req: unknown) => apiPost('/api/export/onnx', req)
+
+export const fetchConfigLibrary   = () => apiFetch<ConfigLibrary>('/api/experiments/config-library')
+export const refreshConfigLibrary = () => apiPost<{ status: string }>('/api/experiments/config-library/refresh', {})
+export const saveConfig = (req: { category: string; name: string; content_yaml: string }) =>
+  apiPost<{ path: string; name: string }>('/api/experiments/config-library/save', req)
+export const registerExperiment  = (req: RegisterRequest)  => apiPost<RegisterResponse>('/api/experiments/register', req)
 
