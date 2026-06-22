@@ -63,6 +63,12 @@ Evaluated with VOC mAP @ IoU 0.5. Per-class AP breakdown coming soon.
     - [S3 integration](#s3-integration)
     - [EC2 spot training with Terraform](#ec2-spot-training-with-terraform)
     - [Experiment Ledger (DynamoDB)](#experiment-ledger-dynamodb)
+  - [Training Orchestration (Control Plane)](#training-orchestration-control-plane)
+    - [End-to-end flow](#end-to-end-flow)
+    - [API endpoints](#api-endpoints)
+    - [Config library on S3](#config-library-on-s3)
+    - [The training\_pipeline DAG](#the-training_pipeline-dag)
+    - [Self-reporting instances](#self-reporting-instances)
   - [Dashboard](#dashboard)
     - [Views](#views)
     - [Running the dashboard](#running-the-dashboard)
@@ -188,7 +194,7 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   ├── training.tf             #   EC2 spot instance request
 │   ├── iam.tf                  #   IAM role with S3 + DynamoDB permissions
 │   ├── dynamodb.tf             #   DynamoDB table data block (read-only lookup)
-│   ├── schedule.tf             #   null_resource: runs scheduler on apply
+│   ├── user_data.sh            #   Instance bootstrap: pull image, config, shards; run training
 │   ├── variables.tf            #   Input variables
 │   ├── QUICKSTART.md           #   Step-by-step EC2 training guide
 │   └── DOCKER_USAGE.md         #   Docker / docker-compose guide
@@ -205,8 +211,21 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   └── integration/            # Multi-component integration tests
 │
 ├── notebooks/                  # Notebook-driven development (see below)
+├── api/                        # FastAPI control-plane backend
+│   ├── main.py                 #   App: routers, CORS, static UI, config-library sync on startup
+│   ├── config.py               #   Buckets, region, table, infra/config dirs, DB URLs
+│   ├── routers/
+│   │   ├── experiments.py      #     register / preview / list / reset / config-library
+│   │   └── training.py         #     launch (triggers DAG) / stop / instance status
+│   └── services/
+│       ├── experiments.py      #     register_experiments(): resolve → fingerprint → S3 + ledger
+│       ├── fingerprint.py      #     TF-free fingerprint helper (dedup key)
+│       ├── config_library.py   #     S3 ⇄ local base-config sync + upload
+│       ├── ledger.py           #     DynamoDB ledger accessor
+│       └── ec2.py              #     Instance describe / stop / TensorBoard URL
 ├── dags/
-│   └── etl_pipeline.py         # Airflow DAG: schedule, orchestrate, notify
+│   ├── etl_pipeline.py         # Airflow DAG: ETL provision → run → teardown → notify
+│   └── training_pipeline.py    # Airflow DAG: check → launch → wait → teardown → email
 ├── ui/                         # Dashboard frontend
 │   ├── src/                    #   React + TypeScript components (Vite)
 │   │   ├── components/         #     Pipeline, Metrics, ETL, Ops, Deploy, Config views
@@ -219,7 +238,7 @@ Six feature maps at different resolutions feed into shared-weight prediction hea
 │   └── Dockerfile.dashboard    # Multi-stage: Node (Vite build) + Python (FastAPI + static)
 ├── Dockerfile                  # TF 2.17-gpu training image
 ├── Dockerfile.tensorboard      # TensorBoard S3-sync image
-├── docker-compose.yml          # Training, ETL, Airflow, Postgres, TensorBoard
+├── docker-compose.yml          # Dashboard (API + UI), Airflow, Postgres, ETL
 ├── Makefile                    # dev, test, lint, format shortcuts
 └── pyproject.toml              # Project metadata and dependencies
 ```
@@ -435,8 +454,10 @@ An atomic experiment tracking table prevents duplicate runs, enables spot preemp
 ```
 pending ──► running ──► success
                 │
-                └──► failed ──► running   (on next terraform apply)
+                └──► failed ──► pending   (reset via API / CLI, then re-launch)
 ```
+
+The ledger doubles as a **work queue**: the API writes a `pending` row, and the EC2 instance atomically claims it (`pending → running`) on boot. See [Training Orchestration](#training-orchestration-control-plane) for the full API → DAG → instance flow.
 
 **Setup:** The DynamoDB table (`ml-experiment-ledger`) is created manually and looked up read-only by Terraform. Primary key is `experiment_id` (e.g. `exp002`), sort key is `fingerprint` (12-char hash of the config).
 
@@ -448,10 +469,11 @@ python scripts/schedule_experiments.py --dry_run
 
 # Register all enabled experiment YAMLs in configs/experiments/
 python scripts/schedule_experiments.py --table_name ml-experiment-ledger --region us-east-1
-
-# Or: terraform apply automatically runs the scheduler before launching EC2
-# (via null_resource.schedule_experiments in infrastructure/schedule.tf)
 ```
+
+> The CLI is the manual path; the primary path is now the API / dashboard
+> (`POST /api/experiments/register`), which also uploads the config to S3 and
+> can launch the run. See [Training Orchestration](#training-orchestration-control-plane).
 
 **Monitoring:**
 
@@ -469,16 +491,88 @@ python scripts/schedule_experiments.py --list
 **Recovering from spot preemption:**
 
 ```bash
-# Reset a failed experiment back to pending
+# Reset a failed experiment back to pending (CLI, API, or dashboard)
 python scripts/schedule_experiments.py --reset_failed exp002
 
-# Then re-apply Terraform — the new instance will resume from the last S3 checkpoint
-terraform apply
+# Then re-launch via the API — the new instance resumes from the last S3 checkpoint
+curl -X POST http://localhost:8000/api/training/launch \
+  -d '{"experiment_id":"exp002","fingerprint":"<fp>"}'
 ```
 
 **How it links to training:** When `train.py` starts on EC2, it reads `DYNAMODB_EXPERIMENT_TABLE` and `AWS_DEFAULT_REGION` from the environment (injected by `user_data.sh`), looks up the experiment by `(experiment_id, fingerprint)`, and atomically claims it using a conditional write. If the experiment is `failed` and has a `checkpoint_s3_path`, it downloads that checkpoint and resumes automatically. On success or failure, the ledger is updated in the `finally` block with the final state, step count, and best metric.
 
 **Fingerprint stability:** Path keys (`root`, `classes_file`, etc.) are stripped from the config before hashing so that fingerprints are identical regardless of where the config is loaded from (local machine vs. Docker container on EC2).
+
+---
+
+## Training Orchestration (Control Plane)
+
+Experiments no longer require touching a terminal, hand-editing configs, or running Terraform by hand. A FastAPI **control plane** turns a config into a registered experiment and triggers an Airflow DAG that provisions a GPU, runs training, tears the instance down, and emails a report — fully hands-off.
+
+The separation of concerns:
+
+- **API** (producer) — registers experiments and triggers runs.
+- **DynamoDB ledger** (queue + state) — holds `pending`/`running`/`success`/`failed`.
+- **Airflow DAG** (consumer) — provisions, waits, tears down, notifies.
+- **EC2 instance** (worker) — atomically claims its experiment and self-reports the outcome.
+
+### End-to-end flow
+
+```
+                 ┌─────────────┐
+   POST /register│   FastAPI   │  resolve config → fingerprint
+ ───────────────►│ control     │  thin YAML  → s3://…/experiments/
+                 │ plane       │  pending row → DynamoDB ledger
+   POST /launch  │             │
+ ───────────────►│             │── REST trigger ─►┌─────────────┐
+                 └─────────────┘                  │  Airflow    │
+                                                  │  DAG        │
+   check_experiment ─► launch ─► wait_for_completion ─► teardown ─► email
+        │                │              │ (sensor)         │ (all_done)
+        │                │              │                  │
+   ledger lookup    terraform apply   poll ledger     terraform destroy
+   (pending?)       (EC2 Fleet)       until terminal  (kill fleet)
+                          │
+                          ▼
+                  ┌───────────────┐  pull image + shards + config
+                  │  EC2 g5.xlarge│  claim experiment (pending→running)
+                  │  (self-claims)│  train → mark success / failed
+                  └───────────────┘
+```
+
+### API endpoints
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/experiments/preview` | Resolve a config and return thin YAML + resolved config + fingerprint (no writes) |
+| `POST /api/experiments/register` | Store thin config to S3 + write a `pending` ledger row (deduped by fingerprint) |
+| `GET  /api/experiments` | List all experiments with live status |
+| `POST /api/experiments/{id}/{fp}/reset` | Reset failed runs back to `pending` |
+| `GET  /api/experiments/config-library` | Read the base config library for the experiment builder |
+| `POST /api/experiments/config-library/{save,refresh}` | Save a base config to S3 / re-sync from S3 |
+| `POST /api/training/launch` | Trigger the `training_pipeline` DAG for `{experiment_id, fingerprint}` |
+| `POST /api/training/stop` | Stop the container and destroy the fleet |
+| `GET  /api/training/{instance_id}/status` | Instance state, public IP, TensorBoard URL |
+
+### Config library on S3
+
+Only the **thin** experiment YAML (`defaults:` + `overrides:`) is stored — at `s3://<experiment-bucket>/experiments/{id}_{fp}.yaml`. The reusable **base** config library lives under the `config-library/` prefix and is synced down to each machine on startup (`sync_config_library()`), so config resolution always happens **locally**, against that machine's own paths and environment. No S3 references leak into the resolved config; the fingerprint is identical whether resolved on the laptop or on EC2.
+
+### The training_pipeline DAG
+
+`dags/training_pipeline.py` is triggered with `conf={experiment_id, fingerprint}`:
+
+1. **`check_experiment`** — looks up the ledger row; fails fast (`AirflowFailException`) if missing or not `pending`. Passes config metadata downstream via XCom.
+2. **`launch_training_job`** — `terraform apply -target=aws_ec2_fleet.training` with the experiment's config URI, `use_tfrecords`, and `instance_type`.
+3. **`wait_for_completion`** — a `PythonSensor` in `reschedule` mode polling the ledger every 2 min; returns `True` on `success`, raises `AirflowFailException` on `failed`, frees the worker slot in between.
+4. **`teardown_ec2`** (`trigger_rule="all_done"`) — `terraform destroy -target=aws_ec2_fleet.training`, so the fleet is killed whether the run succeeded, failed, or timed out.
+5. **`email_report`** (`all_done`) — HTML summary with final status, best metric, steps, and checkpoint path.
+
+> The DAG triggers via Airflow's REST API, which requires the `basic_auth` backend (`AIRFLOW__API__AUTH_BACKENDS`) and a dedicated API user — both configured in `docker-compose.yml`.
+
+### Self-reporting instances
+
+The DAG never sets `running` — the **instance** owns its own status. On boot, `train.py` atomically claims its experiment (`pending → running`) with a conditional write, and its `finally` block always writes a terminal state (`success`/`failed`) — even on an init crash — so the ledger never gets stuck and `wait_for_completion` always resolves.
 
 ---
 
@@ -637,20 +731,21 @@ A React + TypeScript MLOps dashboard served by the FastAPI backend. It provides 
 | ETL | RDS (PostgreSQL) | Video table, class distribution, frame inspector with model vote breakdown |
 | Ops | RDS (Airflow DB) + EC2 | Airflow DAG graph, task table, Ray cluster status, run history |
 | Deploy | — | CI/CD pipeline stages, release history |
-| Config | DynamoDB | YAML config builder with live preview and experiment launch |
+| Config | S3 / DynamoDB | Experiment builder over the S3 config library — live preview, register, and one-click launch (triggers the `training_pipeline` DAG) |
 
 ### Running the dashboard
 
 ```bash
 # Copy and configure credentials
-cp .env.example .env   # fill in AWS creds
+cp .env.example .env   # fill in AWS creds + Airflow API user/password
 
-# Start the dashboard and its Postgres dependency
-docker compose up dashboard postgres
-# → http://localhost:8000
+# Start the dashboard, Airflow, and Postgres
+docker compose up dashboard airflow postgres
+# → dashboard:  http://localhost:8000
+# → Airflow UI: http://localhost:8080
 ```
 
-The dashboard container is a two-stage build: Node 22 compiles the Vite frontend, then Python 3.12 serves both the API and the compiled static files.
+The dashboard container is a two-stage build: Node 22 compiles the Vite frontend, then Python 3.12 serves both the API and the compiled static files. To drive the full launch flow it talks to Airflow's REST API (`AIRFLOW_URL`, `AIRFLOW_USER`, `AIRFLOW_PASSWORD`) and has Terraform + the `infrastructure/` directory mounted in.
 
 ### Frontend tests
 
@@ -819,6 +914,6 @@ deploy:
 
 This project is under active development. See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for a detailed breakdown of completed, in-progress, and planned work.
 
-**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, Terraform-integrated scheduling, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), image/webcam inference CLI, multi-model ETL pipeline (YOLOv8 + RT-DETR + Grounding DINO consensus), Airflow DAG orchestration with PostgreSQL metadata tracking, TFRecord output, automated HTML email reporting, and React + TypeScript MLOps dashboard with ~160 Jest tests.
+**Completed:** Core SSD architecture, training pipeline with AMP/EMA, checkpoint management with S3 resume, Docker + Terraform infrastructure, configuration system, VOC mAP evaluation, DynamoDB experiment ledger with atomic claiming, spot preemption recovery, SavedModel export, ONNX conversion and validation, static INT8 QDQ quantization (TensorRT-compatible), image/webcam inference CLI, multi-model ETL pipeline (YOLOv8 + RT-DETR + Grounding DINO consensus), Airflow DAG orchestration with PostgreSQL metadata tracking, TFRecord output, automated HTML email reporting, React + TypeScript MLOps dashboard with ~160 Jest tests, a FastAPI control plane (register → S3 + ledger, dedup by fingerprint), an S3-backed config library, the `training_pipeline` DAG (API-triggered provision → train → teardown → email), self-reporting EC2 instances, and CI/CD (GitHub Actions: lint/type/test gating + Docker build & push).
 
-**Planned:** COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration, VisDrone fine-tuning on ETL-generated datasets.
+**Planned:** Wiring the remaining dashboard launch/stop controls to the API, always-on TensorBoard on training instances, COCO mAP metrics, quantization-aware training, multi-scale training, ROS2 runtime integration, VisDrone fine-tuning on ETL-generated datasets.

@@ -1,4 +1,7 @@
 import type { EtlStats, EtlVideo, EtlFrame, EtlAnnotation } from '../components/etl/etlTypes'
+import type { ConfigLibrary, RegisterRequest, RegisterResponse } from '../components/create/createTypes'
+
+
 
 const API_BASE = ''
 
@@ -30,13 +33,21 @@ export const fetchEtlFrames = (id: string)  => apiFetch<EtlFrame[]>(`/api/etl/vi
 export const fetchEtlAnnotations = (id: string)  => apiFetch<EtlAnnotation[]>(`/api/etl/frames/${id}/annotations`)
 export const fetchCicd = () => apiFetch('/api/deploy/cicd')
 export const fetchReleases = () => apiFetch('/api/deploy/releases')
-export const fetchAirflow = () => apiFetch('/api/ops/airflow')
-export const fetchAirflowRuns = () => apiFetch('/api/ops/airflow/runs')
-export const fetchAirflowRunTasks = (id: string) => apiFetch(`/api/ops/airflow/runs/${id}/tasks`)
+export const fetchDags = () => apiFetch<{ dag_id: string; label: string; schedule: string }[]>('/api/ops/dags')
+export const fetchAirflow = (dagId = 'etl_pipeline') => apiFetch(`/api/ops/airflow?dag_id=${encodeURIComponent(dagId)}`)
+export const fetchAirflowRuns = (dagId = 'etl_pipeline') => apiFetch(`/api/ops/airflow/runs?dag_id=${encodeURIComponent(dagId)}`)
+export const fetchAirflowRunTasks = (id: string, dagId = 'etl_pipeline') =>
+  apiFetch(`/api/ops/airflow/runs/${id}/tasks?dag_id=${encodeURIComponent(dagId)}`)
 export const fetchRay = () => apiFetch('/api/ops/ray')
 
 export const launchTraining = (req: unknown) => apiPost('/api/training/launch', req)
 export const stopTraining = (req: unknown) => apiPost('/api/training/stop', req)
 export const exportSavedModel = (req: unknown) => apiPost('/api/export/savedmodel', req)
 export const exportOnnx = (req: unknown) => apiPost('/api/export/onnx', req)
+
+export const fetchConfigLibrary   = () => apiFetch<ConfigLibrary>('/api/experiments/config-library')
+export const refreshConfigLibrary = () => apiPost<{ status: string }>('/api/experiments/config-library/refresh', {})
+export const saveConfig = (req: { category: string; name: string; content_yaml: string }) =>
+  apiPost<{ path: string; name: string }>('/api/experiments/config-library/save', req)
+export const registerExperiment  = (req: RegisterRequest)  => apiPost<RegisterResponse>('/api/experiments/register', req)
 

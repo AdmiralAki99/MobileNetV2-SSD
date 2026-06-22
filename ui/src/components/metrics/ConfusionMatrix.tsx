@@ -6,6 +6,10 @@ const N = 21
 const CELL = 16
 const LABELS = ['bg', ...VOC_CLASSES.map(c => c.slice(0, 4))]
 
+const COL_HI = '#8a9a6a'
+const COL_LO = '#4a5a6a'
+const COL_EMPTY = 'rgba(255,255,255,0.03)'
+
 interface Props {
   matrix: number[][]
 }
@@ -15,14 +19,25 @@ export const ConfusionMatrix = ({ matrix }: Props) => {
 
   const flat = matrix.flat()
   const mx = Math.max(...flat, 1)
-  const colSc = d3.scaleSequential(d3.interpolate('#0a1a14', '#00d4a0')).domain([0, mx])
+
+  const diagSc = d3.scaleSequential(d3.interpolate('rgba(138,154,106,0.08)', COL_HI)).domain([0, mx])
+  const errSc  = d3.scaleSequential(d3.interpolate('rgba(74,90,106,0.06)',   COL_LO)).domain([0, mx])
 
   return (
-    <div data-testid="confusion-matrix" style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+    <div
+      data-testid="confusion-matrix"
+      style={{
+        padding: '18px 20px',
+        display: 'flex', flexDirection: 'column', gap: 12,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Confusion Matrix</span>
-        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>rows actual · cols predicted</span>
+        <span style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>
+          Confusion Matrix
+        </span>
+        <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)' }}>rows actual · cols predicted</span>
       </div>
+
       <div style={{ overflowX: 'auto', position: 'relative' }}>
         <svg
           data-testid="matrix-svg"
@@ -33,14 +48,18 @@ export const ConfusionMatrix = ({ matrix }: Props) => {
           {matrix.map((row, r) =>
             row.map((val, c) => {
               const x = 1 + c * CELL, y = 1 + r * CELL
+              const isDiag = r === c
+              const fill = val > 0
+                ? (isDiag ? diagSc(val) : errSc(val))
+                : COL_EMPTY
               return (
                 <rect
                   key={`${r}-${c}`}
                   data-testid={`cell-${r}-${c}`}
                   x={x} y={y}
                   width={CELL - 1} height={CELL - 1}
-                  rx="2"
-                  fill={val > 0 ? colSc(val) : '#0a1410'}
+                  rx="1"
+                  fill={fill}
                   onMouseEnter={e => {
                     const sr = e.currentTarget.closest('svg')!.getBoundingClientRect()
                     setTip({ r, c, val, x: e.clientX - sr.left, y: e.clientY - sr.top })
@@ -51,17 +70,18 @@ export const ConfusionMatrix = ({ matrix }: Props) => {
               )
             })
           )}
+
           {tip && tip.val > 0 && (() => {
             const tx = Math.min(tip.x + 8, N * CELL - 118)
-            const ty = Math.max(tip.y - 38, 2)
+            const ty = Math.max(tip.y - 46, 2)
             return (
               <g data-testid="cell-tooltip">
-                <rect x={tx} y={ty} width={114} height={36} rx="6"
-                  fill="rgba(8,14,12,0.97)" stroke="rgba(255,255,255,0.14)" strokeWidth="0.8" />
-                <text x={tx + 9} y={ty + 13} fontSize="8.5" fill="var(--text-secondary)" fontFamily="'DM Sans',sans-serif">
+                <rect x={tx} y={ty} width={114} height={40} rx="4"
+                  fill="rgba(6,10,9,0.97)" stroke="rgba(255,255,255,0.1)" strokeWidth="0.8" />
+                <text x={tx + 9} y={ty + 14} fontSize="8.5" fill="rgba(255,255,255,0.35)" fontFamily="monospace">
                   {LABELS[tip.r]} → {LABELS[tip.c]}
                 </text>
-                <text x={tx + 9} y={ty + 26} fontSize="10" fontWeight="700" fill="var(--text-primary)" fontFamily="'DM Sans',sans-serif">
+                <text x={tx + 9} y={ty + 30} fontSize="10" fontWeight="700" fill="#e8eae9" fontFamily="monospace">
                   {tip.val} samples
                 </text>
               </g>
@@ -69,10 +89,19 @@ export const ConfusionMatrix = ({ matrix }: Props) => {
           })()}
         </svg>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-        <span data-testid="legend-min" style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>0</span>
-        <div style={{ flex: 1, height: 4, borderRadius: 3, background: 'linear-gradient(90deg,#0a1a14,#00d4a0)' }} />
-        <span data-testid="legend-max" style={{ fontSize: '9px', color: 'var(--text-tertiary)' }}>{mx}</span>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 40, height: 3, background: `linear-gradient(90deg, rgba(138,154,106,0.08), ${COL_HI})` }} />
+          <span data-testid="legend-min" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>correct</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 40, height: 3, background: `linear-gradient(90deg, rgba(74,90,106,0.06), ${COL_LO})` }} />
+          <span data-testid="legend-max" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>error</span>
+        </div>
+        <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.15)', fontFamily: 'monospace', marginLeft: 'auto' }}>
+          max {mx}
+        </span>
       </div>
     </div>
   )

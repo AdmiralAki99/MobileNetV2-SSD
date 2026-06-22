@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ActionBtn } from './ActionBtn'
 import { ArtifactRow } from './ArtifactRow'
+import { ArcGauge } from './ArcGauge'
 import { PillButton } from '../PillButton'
 import { usePolling } from '../../api/hooks'
 import {
@@ -126,11 +127,38 @@ export const DetailPanel = ({ selectedExp, onRefresh }: Props) => {
         <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
           {selectedExp.experiment_id}
         </div>
-        {mapPct !== null && (
-          <div data-testid="map-score" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-            mAP {mapPct}%
-          </div>
-        )}
+      </div>
+
+      {/* Arc gauges — stacked vertically, each horizontal (circle left, text right) */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 1,
+        padding: '2px 0 6px',
+      }}>
+        {/* Divider line above first */}
+        <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', marginBottom: 10 }} />
+
+        <div style={{ padding: '6px 8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <ArcGauge
+            testId="map-score"
+            value={mapPct !== null ? mapPct / 100 : 0}
+            label="Best mAP Score"
+            sublabel={mapPct != null ? `${mapPct}` : undefined}
+            color="#00d4a0"
+            size={62}
+          />
+        </div>
+
+        <div style={{ padding: '10px 8px 6px' }}>
+          <ArcGauge
+            value={selectedExp.best_epoch != null ? Math.min(selectedExp.best_epoch / 200, 1) : 0}
+            label="Training Progress"
+            sublabel={selectedExp.best_epoch != null ? `ep ${selectedExp.best_epoch}` : undefined}
+            color="#e8924a"
+            size={62}
+          />
+        </div>
+
+        <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', marginTop: 6 }} />
       </div>
 
       {selectedExp.failure_reason && (
