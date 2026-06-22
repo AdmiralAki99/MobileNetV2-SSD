@@ -33,9 +33,11 @@ export const fetchEtlFrames = (id: string)  => apiFetch<EtlFrame[]>(`/api/etl/vi
 export const fetchEtlAnnotations = (id: string)  => apiFetch<EtlAnnotation[]>(`/api/etl/frames/${id}/annotations`)
 export const fetchCicd = () => apiFetch('/api/deploy/cicd')
 export const fetchReleases = () => apiFetch('/api/deploy/releases')
-export const fetchAirflow = () => apiFetch('/api/ops/airflow')
-export const fetchAirflowRuns = () => apiFetch('/api/ops/airflow/runs')
-export const fetchAirflowRunTasks = (id: string) => apiFetch(`/api/ops/airflow/runs/${id}/tasks`)
+export const fetchDags = () => apiFetch<{ dag_id: string; label: string; schedule: string }[]>('/api/ops/dags')
+export const fetchAirflow = (dagId = 'etl_pipeline') => apiFetch(`/api/ops/airflow?dag_id=${encodeURIComponent(dagId)}`)
+export const fetchAirflowRuns = (dagId = 'etl_pipeline') => apiFetch(`/api/ops/airflow/runs?dag_id=${encodeURIComponent(dagId)}`)
+export const fetchAirflowRunTasks = (id: string, dagId = 'etl_pipeline') =>
+  apiFetch(`/api/ops/airflow/runs/${id}/tasks?dag_id=${encodeURIComponent(dagId)}`)
 export const fetchRay = () => apiFetch('/api/ops/ray')
 
 export const launchTraining = (req: unknown) => apiPost('/api/training/launch', req)

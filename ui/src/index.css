@@ -1,18 +1,28 @@
 :root {
-  --bg-primary: #060a09;
-  --bg-secondary: #0c1110;
-  --bg-surface: #141918;
-  --bg-elevated: #1c2120;
-  --bg-pill: #222827;
-  --border-subtle: rgba(255,255,255,0.06);
-  --border-medium: rgba(255,255,255,0.12);
-  --text-primary: #e8eae9;
-  --text-secondary: #7a7f7e;
-  --text-tertiary: #494e4d;
+  --bg-primary: #050807;
+  --bg-secondary: #0a0e0d;
+  --bg-surface: #0f1411;
+  --bg-elevated: #161c19;
+  --bg-pill: #1e2420;
+  --border-subtle: rgba(255,255,255,0.05);
+  --border-medium: rgba(255,255,255,0.10);
+  --text-primary: #dde2e0;
+  --text-secondary: #6a706e;
+  --text-tertiary: #3e4442;
   --accent: oklch(0.72 0.17 165);
   --danger: #e84855;
   --warning: #e88548;
   --success: #65c16a;
+
+  /* Frosted glass */
+  --glass-bg: rgba(255,255,255,0.028);
+  --glass-bg-hover: rgba(255,255,255,0.045);
+  --glass-border: rgba(255,255,255,0.065);
+  --glass-blur: blur(18px) saturate(1.5);
+
+  /* Glow palette */
+  --glow-teal: rgba(0, 200, 140, 0.07);
+  --glow-teal-strong: rgba(0, 200, 140, 0.13);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,9 +37,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar { width: 2px; height: 2px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,0.1); }

@@ -10,6 +10,7 @@ import boto3
 
 
 def register_experiments(config: dict, task_type: str = "detector", git_commit: str | None = None):
+    
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as file:
         json.dump(config, file)
         temp_path = file.name

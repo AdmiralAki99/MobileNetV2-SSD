@@ -7,16 +7,15 @@ interface Props {
 }
 
 export const StatTile = ({ label, value, sub, accentColor, sparkData }: Props) => {
-  const W = 80, H = 28, pad = 2
-  const vals = sparkData ? sparkData.slice(-30) : []
+  const W = 72, H = 24, pad = 2
+  const vals = sparkData ? sparkData.slice(-40) : []
   let spark = null
 
   if (vals.length > 1) {
     const mn = Math.min(...vals), mx = Math.max(...vals)
-    const xSc = (i: number) => (i / (vals.length - 1)) * (W - pad * 2) + pad
-    const ySc = (v: number) => H - pad - (mx === mn ? H / 2 : (v - mn) / (mx - mn) * (H - pad * 2))
-    const pts = vals.map((v, i) => `${xSc(i)},${ySc(v)}`).join(' ')
-    const area = `M${xSc(0)},${H} ` + vals.map((v, i) => `L${xSc(i)},${ySc(v)}`).join(' ') + ` L${xSc(vals.length - 1)},${H} Z`
+    const barW = Math.max(1, (W - pad * 2) / vals.length - 0.5)
+    const xSc = (i: number) => pad + i * ((W - pad * 2) / vals.length)
+    const ySc = (v: number) => mx === mn ? H / 2 : ((v - mn) / (mx - mn)) * (H - pad * 2)
 
     spark = (
       <svg
@@ -25,14 +24,16 @@ export const StatTile = ({ label, value, sub, accentColor, sparkData }: Props) =
         style={{ position: 'absolute', bottom: 0, right: 0, opacity: 0.25 }}
         viewBox={`0 0 ${W} ${H}`}
       >
-        <defs>
-          <linearGradient id={`sg-${label}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={accentColor ?? 'var(--accent)'} stopOpacity="1" />
-            <stop offset="100%" stopColor={accentColor ?? 'var(--accent)'} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={area} fill={`url(#sg-${label})`} />
-        <polyline points={pts} fill="none" stroke={accentColor ?? 'var(--accent)'} strokeWidth="1.2" />
+        {vals.map((v, i) => {
+          const barH = Math.max(1, ySc(v))
+          return (
+            <rect key={i}
+              x={xSc(i)} y={H - pad - barH}
+              width={barW} height={barH}
+              fill={accentColor ?? '#8a9a6a'}
+            />
+          )
+        })}
       </svg>
     )
   }
@@ -41,20 +42,50 @@ export const StatTile = ({ label, value, sub, accentColor, sparkData }: Props) =
     <div
       data-testid="stat-tile"
       style={{
-        background: '#0f1714', border: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 16, overflow: 'hidden', position: 'relative',
-        padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 4,
+        position: 'relative', overflow: 'hidden',
+        padding: '18px 20px 16px',
       }}
     >
       {spark}
-      <span data-testid="stat-label" style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.7px', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>
+
+      <div style={{
+        position: 'absolute', top: 0, left: 20, right: 20, height: '1px',
+        background: `linear-gradient(90deg, transparent, ${accentColor ?? '#8a9a6a'}66, transparent)`,
+      }} />
+
+      <span
+        data-testid="stat-label"
+        style={{
+          display: 'block',
+          fontSize: '8.5px', fontWeight: 700, letterSpacing: '1px',
+          textTransform: 'uppercase', color: 'rgba(255,255,255,0.22)',
+          marginBottom: 8,
+        }}
+      >
         {label}
       </span>
-      <span data-testid="stat-value" style={{ fontSize: '28px', fontWeight: 700, color: accentColor ?? 'var(--text-primary)', letterSpacing: '-1px', lineHeight: 1.1 }}>
+
+      <span
+        data-testid="stat-value"
+        style={{
+          display: 'block',
+          fontSize: '28px', fontWeight: 700,
+          color: '#dde2e0', letterSpacing: '-1.5px', lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
         {value}
       </span>
+
       {sub && (
-        <span data-testid="stat-sub" style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: 1 }}>
+        <span
+          data-testid="stat-sub"
+          style={{
+            display: 'block',
+            fontSize: '9px', color: 'rgba(255,255,255,0.2)',
+            marginTop: 6, fontFamily: 'monospace',
+          }}
+        >
           {sub}
         </span>
       )}

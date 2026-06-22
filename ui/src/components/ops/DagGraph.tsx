@@ -38,8 +38,8 @@ export const DagGraph = ({ tasks }: Props) => {
                 <line x1={x + BOX_W} y1={cy} x2={x + BOX_W + ARROW_GAP - 6} y2={cy}
                   stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
               )}
-              <rect x={x} y={y} width={BOX_W} height={BOX_H} rx="8"
-                fill={`${color}18`} stroke={`${color}55`} strokeWidth="1.5" />
+              <rect x={x} y={y} width={BOX_W} height={BOX_H} rx="2"
+                fill={`${color}10`} stroke={`${color}44`} strokeWidth="1" />
               <text x={cx} y={y + 17} textAnchor="middle" fill="rgba(232,234,233,0.85)"
                 fontSize="9.5" fontFamily="monospace" fontWeight="600">{task.task_id}</text>
               <text x={cx} y={y + 31} textAnchor="middle" fill={color}

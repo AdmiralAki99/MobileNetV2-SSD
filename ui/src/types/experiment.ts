@@ -12,4 +12,5 @@ export interface Experiment {
   completed_at?: string
   claimed?: string
   failure_reason?: string
+  registered_at?: string
 }
