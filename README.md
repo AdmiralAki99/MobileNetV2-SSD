@@ -19,9 +19,19 @@ Built with TensorFlow 2.17, trained on PASCAL VOC, and designed for reproducible
 
 ### Example detections — Pascal VOC (SavedModel)
 
-![Demo inference](assets/demo_inference.jpg)
+
+
+https://github.com/user-attachments/assets/ef9631f2-288e-421b-8eb3-bba6f9a42e8c
+
+
 
 *Detection output showing multiple cyclists with overlapping objects, demonstrating robust multi-object detection in cluttered scenes.*
+
+### Results Video
+
+<video src="bbox_evolution.mp4" controls="controls" width="100%">
+  Your browser does not support the video tag.
+</video>
 
 ### Metrics
 
