@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .routers import experiments, training, export, etl, ops
+from .routers import experiments, training, export, etl, ops, preprocessing
 from .services.config_library import sync_config_library
 
 # Creating the app
@@ -20,6 +20,7 @@ app.include_router(training.router, prefix="/api/training")
 app.include_router(export.router, prefix="/api/export")
 app.include_router(etl.router, prefix="/api/etl")
 app.include_router(ops.router, prefix="/api/ops")
+app.include_router(preprocessing.router, prefix="/api/preprocessing")
 
 @app.on_event("startup")
 def _startup():

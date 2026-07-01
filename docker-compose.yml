@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
@@ -16,7 +14,7 @@ services:
   airflow:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: docker/Dockerfile.airflow
     depends_on:
       - postgres
     environment:
@@ -30,6 +28,7 @@ services:
       AIRFLOW__SMTP__SMTP_SSL: ${SMTP_SSL:-false}
       AIRFLOW__SMTP__SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       AIRFLOW__SMTP__SMTP_MAIL_FROM: ${OWNER_EMAIL:-airflow@localhost}
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
       AIRFLOW_OWNER_EMAIL: ${OWNER_EMAIL:-airflow@localhost}
       AIRFLOW_OWNER: ${AIRFLOW_OWNER:-airflow}
       ETL_LOCAL_MODE: ${ETL_LOCAL_MODE:-true}
@@ -68,9 +67,14 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AIRFLOW_URL: http://airflow:8080
+      AIRFLOW_USER: ${AIRFLOW_USER:-apiuser}
+      AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
     ports:
       - "8000:8000"
     restart: unless-stopped
+    volumes:
+      - ./infrastructure:/app/infrastructure
 
   etl:
     build:
@@ -86,6 +90,40 @@ services:
       - ./configs:/app/configs
       - ./videos:/app/videos
       - ./src:/app/src
+    restart: "no"
+    
+  tfrecords:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.tfrecords
+    profiles: ["jobs"]
+    depends_on:
+      - postgres
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - ETL_DATABASE_URL=${ETL_DATABASE_URL:-postgresql://user:password@postgres:5432/etl_db}
+    volumes:
+      - ./configs:/app/configs
+      - ./src:/app/src
+      - ./api:/app/api
+      - ./datasets:/app/datasets
+    restart: "no"
+
+  clustering:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.clustering
+    profiles: ["jobs"]
+    depends_on:
+      - postgres
+    environment:
+      - ETL_DATABASE_URL=${ETL_DATABASE_URL:-postgresql://user:password@postgres:5432/etl_db}
+    volumes:
+      - ./configs:/app/configs   # reads priors template, writes derived priors yaml
+      - ./src:/app/src
+      - ./api:/app/api
     restart: "no"
 
 volumes:
