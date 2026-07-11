@@ -5,6 +5,16 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 
 
+def load_class_names(classes_file: str | Path) -> list[str]:
+    classes_file = Path(classes_file)
+
+    if not classes_file.exists():
+        raise FileNotFoundError(f"Classes file not found: {classes_file}")
+
+    with open(classes_file, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
 @dataclass
 class DetectionSample:
     image: np.ndarray  # Shape: [H, W, 3]
@@ -62,21 +72,11 @@ class BaseDetectionDataset(ABC):
         self.use_difficult = use_difficult
         self._validate = validate
 
-        self._class_names = self._load_classes(classes_file)
+        self._class_names = load_class_names(classes_file)
 
         self._class_to_index = {name: i + 1 for i, name in enumerate(self._class_names)}
         self._index_to_class = {i + 1: name for i, name in enumerate(self._class_names)}
         self._index_to_class[0] = "background"
-
-    def _load_classes(self, classes_file: str | Path):
-        classes_file = Path(classes_file)
-
-        # Checking if it exists
-        if not classes_file.exists():
-            raise FileNotFoundError(f"Classes file not found: {classes_file}")
-
-        with open(classes_file, "r") as f:
-            return [line.strip() for line in f if line.strip()]
 
     @property
     def class_names(self):

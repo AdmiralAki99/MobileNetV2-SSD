@@ -70,11 +70,14 @@ services:
       AIRFLOW_URL: http://airflow:8080
       AIRFLOW_USER: ${AIRFLOW_USER:-apiuser}
       AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-/mnt/d/dev/MobileNetV2-SSD}
     ports:
       - "8000:8000"
     restart: unless-stopped
     volumes:
       - ./infrastructure:/app/infrastructure
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./api:/app/api
 
   etl:
     build:
@@ -124,6 +127,20 @@ services:
       - ./configs:/app/configs   # reads priors template, writes derived priors yaml
       - ./src:/app/src
       - ./api:/app/api
+    restart: "no"
+
+  onnx_converter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.export
+    profiles: ["jobs"]
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./configs:/app/configs
+      - ./src:/app/src
     restart: "no"
 
 volumes:

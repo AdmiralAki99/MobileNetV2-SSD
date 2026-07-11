@@ -180,6 +180,35 @@ class ExperimentLedger:
                     raise
 
         return reset_counter
+    
+    def mark_promotion(self, experiment_id, fingerprint, promotion_status, threshold):
+        # Marking the promotion into the ledger so that the passed models make it through the CD pipeline
+        self._table.update_item(
+            Key={
+                "experiment_id": experiment_id,
+                "fingerprint": fingerprint,
+            },
+            UpdateExpression="SET promotion_status=:ps, promotion_threshold=:thresh, promoted_at=:now",
+            ExpressionAttributeValues={
+                ":ps": promotion_status,
+                ":thresh": decimal.Decimal(str(threshold)),
+                ":now": datetime.now(timezone.utc).isoformat()
+            }
+        )
+        
+    def record_precision_metrics(self, experiment_id, fingerprint, precision_metrics):
+        # Function to write precision metrics which will be used in the CD gate
+        # Precision metrics is a dict with KV pairs for each precision level
+        self._table.update_item(
+            Key={
+                "experiment_id": experiment_id,
+                "fingerprint": fingerprint
+            },
+            UpdateExpression="SET precision_metrics=:pm",
+            ExpressionAttributeValues={
+                ":pm": {key: decimal.Decimal(str(value)) for key,value in precision_metrics.items()}
+            }
+        )
 
 
 def get_ec2_instance_id():

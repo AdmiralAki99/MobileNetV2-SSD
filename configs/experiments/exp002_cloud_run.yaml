@@ -16,7 +16,8 @@ experiment:
     - cloud
     - mobilenetv2
     - voc
-    
+  
+  deploy_config: configs/deploy/mobilenetv2_ssd_voc_jetson.yaml
   enabled: true
   priority: 200               # High priority - run first
   depends_on: []

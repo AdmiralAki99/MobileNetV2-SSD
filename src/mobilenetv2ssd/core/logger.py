@@ -10,6 +10,7 @@ from typing import Any
 from dataclasses import dataclass
 from mobilenetv2ssd.core.fingerprint import Fingerprint
 from training.ema import EMA
+from training.dashboard_metrics import DashboardMetricsAccumulator
 import json
 
 import tensorflow as tf
@@ -60,20 +61,19 @@ class Colours:
 class LogLevel:
     name: str
     colour: str
-    icon: str
     level: int
 
 
 LOG_LEVELS = {
-    "debug": LogLevel("DEBUG", Colours.DIM, "🔍", logging.DEBUG),
-    "info": LogLevel("INFO", Colours.BLUE, "ℹ️ ", logging.INFO),
-    "success": LogLevel("SUCCESS", Colours.BRIGHT_GREEN, "✓", logging.INFO + 1),
-    "metric": LogLevel("METRIC", Colours.CYAN, "📊", logging.INFO + 2),
-    "warning": LogLevel("WARNING", Colours.BRIGHT_YELLOW, "⚠️ ", logging.WARNING),
-    "error": LogLevel("ERROR", Colours.BRIGHT_RED, "✗", logging.ERROR),
-    "critical": LogLevel("CRITICAL", Colours.BG_RED + Colours.WHITE, "💀", logging.CRITICAL),
-    "checkpoint": LogLevel("CHECKPOINT", Colours.BRIGHT_GREEN, "💾", logging.INFO + 3),
-    "epoch": LogLevel("EPOCH", Colours.BRIGHT_MAGENTA, "🔄", logging.INFO + 4),
+    "debug": LogLevel("DEBUG", Colours.DIM, logging.DEBUG),
+    "info": LogLevel("INFO", Colours.BLUE, logging.INFO),
+    "success": LogLevel("SUCCESS", Colours.BRIGHT_GREEN, logging.INFO + 1),
+    "metric": LogLevel("METRIC", Colours.CYAN, logging.INFO + 2),
+    "warning": LogLevel("WARNING", Colours.BRIGHT_YELLOW, logging.WARNING),
+    "error": LogLevel("ERROR", Colours.BRIGHT_RED, logging.ERROR),
+    "critical": LogLevel("CRITICAL", Colours.BG_RED + Colours.WHITE, logging.CRITICAL),
+    "checkpoint": LogLevel("CHECKPOINT", Colours.BRIGHT_GREEN, logging.INFO + 3),
+    "epoch": LogLevel("EPOCH", Colours.BRIGHT_MAGENTA, logging.INFO + 4),
 }
 
 
@@ -94,7 +94,8 @@ class ConsoleFormatter(logging.Formatter):
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             coloured_time = f"{Colours.DIM}{timestamp}{Colours.RESET}"
 
-            colourized_level = f"{level_config.colour}{level_config.icon}{level_config.name:10}{Colours.RESET}"
+            tag = f"[{level_config.name}]"
+            colourized_level = f"{level_config.colour}{tag:12}{Colours.RESET}"
 
             match level_name:
                 case "error" | "critical":
@@ -245,6 +246,7 @@ class Logger:
 
         # Storing a metric history
         self._metric_history: list[dict] = []
+        self._dashboard_metrics = DashboardMetricsAccumulator.load(self.job_dir / "dashboard_metrics.json")
 
         # Saving the config file snapshot for examination too
         if config:
@@ -390,6 +392,27 @@ class Logger:
         with open(path, "w") as file:
             json.dump(self._metric_history, file, indent=2)
 
+    def log_dashboard_epoch(
+        self, train_loss: float, map_score: float, learning_rate: float,
+        nms_mean_score: float, nms_avg_det: float, nms_zero_det: float,
+    ):
+        self._dashboard_metrics.append_epoch(
+            train_loss=train_loss, map_score=map_score, learning_rate=learning_rate,
+            nms_mean_score=nms_mean_score, nms_avg_det=nms_avg_det, nms_zero_det=nms_zero_det,
+        )
+
+    def set_dashboard_class_ap(self, class_ap: dict):
+        self._dashboard_metrics.set_class_ap(class_ap)
+
+    def set_dashboard_confusion_matrix(self, matrix: np.ndarray):
+        self._dashboard_metrics.set_confusion_matrix(matrix)
+
+    def set_dashboard_sample_images(self, images: list[dict]):
+        self._dashboard_metrics.set_sample_images(images)
+
+    def save_dashboard_metrics(self):
+        self._dashboard_metrics.save(self.job_dir / "dashboard_metrics.json")
+
     def flush(self):
         # Flushing each handler
         for handler in self._logger.handlers:
@@ -526,6 +549,10 @@ class Logger:
         weights_path = weights_dir / "final_weights.weights.h5"
         model.save_weights(str(weights_path))
         self.checkpoint(f"Saved model final weights to {weights_path}")
+
+        keras_path = weights_dir / "model.keras"
+        model.save(str(keras_path))
+        self.checkpoint(f"Saved model to {keras_path}")
 
         summary = {
             "job_name": self.job_name,

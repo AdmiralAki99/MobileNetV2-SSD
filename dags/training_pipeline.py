@@ -6,7 +6,7 @@ from airflow.exceptions import AirflowException, AirflowFailException
 from airflow.utils.email import send_email
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import boto3
 from botocore.exceptions import ClientError
 import subprocess
@@ -21,6 +21,12 @@ EXPERIMENT_BUCKET = "akhilesh-ml-experiments"
 
 OWNER_EMAIL = os.environ.get("AIRFLOW_OWNER_EMAIL", "")
 LOCAL_MODE = os.environ.get("TRAINING_LOCAL_MODE", "false").lower() == "true"
+PROMOTION_MIN_MAP = float(os.environ.get("PROMOTION_MIN_MAP", "0.70"))
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+DEPLOY_CONFIG = os.environ.get("DEPLOY_CONFIG", "configs/deploy/mobilenetv2_ssd_voc_jetson.yaml")
+CALIBRATION_DIR = os.environ.get("CALIBRATION_DIR", "")
+ONNX_CONVERTER_IMAGE = os.environ.get("ONNX_CONVERTER_IMAGE", "mobilenetv2-ssd_onnx_converter")
 
 default_args = {
     "owner": os.environ.get("AIRFLOW_OWNER", "airflow"),
@@ -95,7 +101,51 @@ def _email_report(**context):
         html += f"<p>Failure: {item['failure_reason']}</p>"
     send_email(to=OWNER_EMAIL, subject=f"Training {item.get('status','?')} — {row['experiment_id']}", html_content=html)
     
+def _run_onnx_convert(**context):
+    row = context["ti"].xcom_pull(task_ids="check_experiment")
+    result = subprocess.run([
+        "docker", "run", "--rm",
+        "-e", f"AWS_ACCESS_KEY_ID={os.environ.get('AWS_ACCESS_KEY_ID','')}",
+        "-e", f"AWS_SECRET_ACCESS_KEY={os.environ.get('AWS_SECRET_ACCESS_KEY','')}",
+        "-e", f"AWS_DEFAULT_REGION={REGION}",
+        "-v", f"{CALIBRATION_DIR}:/calibration",
+        ONNX_CONVERTER_IMAGE,
+        "--deploy_config", DEPLOY_CONFIG,
+        "--calibration_dir", "/calibration",
+        "--num_calibration", "100",
+    ], capture_output=True, text=True)
     
+    if result.returncode != 0:
+        raise AirflowException(f"ONNX conversion failed:\n{result.stderr}")
+
+def _gate_promotion(**context):
+    row = context["ti"].xcom_pull(task_ids="check_experiment")
+    key = {"experiment_id": row["experiment_id"], "fingerprint": row["fingerprint"]}
+    item = _ledger().get_item(Key=key).get("Item", {})
+    best_metric = float(item.get("best_metric", 0))
+    status = "passed" if best_metric >= PROMOTION_MIN_MAP else "failed"
+    _ledger().update_item(
+        Key=key,
+        UpdateExpression="SET promotion_status = :ps, promotion_threshold = :pt, promoted_at = :now",
+        ExpressionAttributeValues={
+            ":ps": status,
+            ":pt": str(PROMOTION_MIN_MAP),
+            ":now": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if status == "failed":
+        raise AirflowException(f"Model did not pass promotion gate (mAP={best_metric:.4f} < {PROMOTION_MIN_MAP})")
+
+def _notify_cd(**context):
+    if not GITHUB_REPO or not GITHUB_TOKEN:
+        return
+    row = context["ti"].xcom_pull(task_ids="check_experiment")
+    requests.post(
+        f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
+        headers={"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"},
+        json={"event_type": "model-promoted", "client_payload": {"experiment_id": row["experiment_id"], "fingerprint": row["fingerprint"]}},
+    ).raise_for_status()
+
 with DAG(
     dag_id="training_pipeline",
     default_args=default_args,
@@ -134,5 +184,20 @@ with DAG(
         trigger_rule="all_done"
     )
     
-    check_experiment >> launch_training_job >> wait_for_training >> teardown >> email_report
+    onnx_convert = PythonOperator(
+        task_id="onnx_convert",
+        python_callable=_run_onnx_convert,
+    )
     
+    gate = PythonOperator(
+        task_id="promotion_gate",
+        python_callable=_gate_promotion,
+    )
+    
+    notify_cd = PythonOperator(
+        task_id="notify_cd",
+        python_callable=_notify_cd,
+        trigger_rule="all_success",
+    )
+    
+    check_experiment >> launch_training_job >> wait_for_training >> teardown >> onnx_convert >> gate >> notify_cd >> email_report

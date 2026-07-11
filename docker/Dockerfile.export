@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    "onnxruntime>=1.15.0" \
+    "onnx>=1.15.0" \
+    "onnxconverter-common>=1.15.0" \
+    "tf2onnx>=1.15.0" \
+    "Pillow>=10.0.0" \
+    "numpy>=1.24.0" \
+    "boto3>=1.28.0" \
+    "pyyaml>=6.0" \
+    "python-dotenv"
+
+
+COPY src/ /app/src/
+COPY configs/ /app/configs/
+
+ENV PYTHONPATH=/app:/app/src
+
+ENTRYPOINT ["python", "-m", "deploy.export.cli_onnx"]
