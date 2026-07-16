@@ -1,6 +1,7 @@
 from pathlib import Path
 import traceback
 import sys
+import os
 from typing import Any
 from datetime import datetime, timezone
 import argparse
@@ -41,9 +42,10 @@ from training.resume import (
 from training.shutdown import ShutdownHandler
 from training.engine import fit
 
-from infrastructure.s3_sync import build_s3_sync, parse_bucket_uri, S3SyncClient
+import ledger_writer
+
+from infrastructure.s3_sync import build_s3_sync, parse_bucket_uri
 from infrastructure.util import download_checkpoint_from_s3
-from infrastructure.dynamodb_ledger import build_dynamodb_ledger, ExperimentLedger, get_ec2_instance_id
 
 import tensorflow as tf
 
@@ -155,88 +157,23 @@ def parse_args():
     }
 
 
-def handle_experiment_ledger(
-    experiment_ledger: ExperimentLedger,
-    ledger_claimed: bool,
-    experiment_id: str,
-    fingerprint: Fingerprint,
-    logger: Logger,
-    s3_sync_client: S3SyncClient,
-    args: dict[str, Any],
-):
-    # Handle ledger
-    if experiment_ledger is not None:
-        state = experiment_ledger.get_experiment_state(experiment_id=experiment_id, fingerprint=fingerprint.short)
-        if state is not None:
-            status = state["status"]
-
-            match status:
-                case "success":
-                    # The experiment has succeded
-                    logger.info(
-                        f"Ledger: {experiment_id} already completed. Artifacts: {state.get('artifact_s3_path')}. Exiting."
-                    )
-                    sys.exit(0)
-                case "running":
-                    logger.info(f"Ledger: {experiment_id} already running on {state.get('ec2_instance')}. Exiting.")
-                    sys.exit(0)
-                case "pending":
-                    # Getting the EC2 instance
-                    instance_id = get_ec2_instance_id()
-
-                    # Now checking if the ledger can claim
-                    if not experiment_ledger.claim_experiment(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint.short,
-                        timestamp=logger.timestamp,
-                        instance_id=instance_id,
-                    ):
-                        logger.info(f"Ledger: lost race to claim {experiment_id}. Exiting.")
-                        sys.exit(0)
-
-                    # It is claimed if it did not fail
-                    ledger_claimed = True
-                    logger.info(f"Ledger: claimed {experiment_id}/{fingerprint.short} (was {status})")
-                case "failed":
-                    # The run failed so attempting to claim the experiment
-                    instance_id = get_ec2_instance_id()
-                    if not experiment_ledger.claim_experiment(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint.short,
-                        timestamp=logger.timestamp,
-                        instance_id=instance_id,
-                    ):
-                        logger.info(f"Ledger: lost race to claim {experiment_id}. Exiting.")
-                        sys.exit(0)
-
-                    # It is claimed if it did not fail
-                    ledger_claimed = True
-                    logger.info(f"Ledger: claimed {experiment_id}/{fingerprint.short} (was {status})")
-
-                    s3_path = state.get("checkpoint_s3_path")
-                    if s3_path and not args.get("resume_checkpoint_path") and s3_sync_client:
-                        logger.info(f"Ledger: previous run failed with checkpoint at {s3_path}. Resuming.")
-                        # Resuming if it exists
-                        _, s3_prefix = parse_bucket_uri(s3_path)
-                        local_dir, actual_step = download_checkpoint_from_s3(
-                            s3_client=s3_sync_client, s3_checkpoint_prefix=s3_prefix, checkpoint_step=None
-                        )
-                        if local_dir:
-                            # Discovering checkpoint
-                            discovered_checkpoint = discover_checkpoint(local_dir, target_step=actual_step)
-                            if discovered_checkpoint:
-                                args["resume_checkpoint_path"] = discovered_checkpoint["ckpt_path"]
-                                logger.info(f"Ledger: will resume from step {discovered_checkpoint['step']}")
-        else:
-            # Logger is None so there is not targeting
-            logger.warning(f"Ledger: no entry for {experiment_id}/{fingerprint.short}. Proceeding without tracking.")
-
-    return args, ledger_claimed
+def _maybe_download_config(experiment_path: Path) -> Path:
+    uri = str(experiment_path)
+    if not uri.startswith("s3://"):
+        return experiment_path
+    import boto3, tempfile
+    _, key = parse_bucket_uri(uri)
+    bucket = uri.removeprefix("s3://").split("/", 1)[0]
+    tmp = Path(tempfile.mkdtemp()) / Path(key).name
+    boto3.client("s3").download_file(bucket, key, str(tmp))
+    print(f"Downloaded experiment config from {uri} to {tmp}")
+    return tmp
 
 
 def initialize_run_settings(args: dict[str, Any]):
     # TODO: Add stuff for distributed training, setting random seeds, etc.
-    experiment_path = args["experiment_path"]
+    experiment_path = _maybe_download_config(args["experiment_path"])
+    args["experiment_path"] = experiment_path
     if not experiment_path.exists():
         raise FileNotFoundError(f"Experiment configuration file not found at {experiment_path}")
 
@@ -278,11 +215,6 @@ def initialize_run_settings(args: dict[str, Any]):
     logger.info(f"Creating S3 Sync Client...{'.'*20}")
     s3_sync_client = build_s3_sync(config=config, logger=logger)
     logger.success("Successfully Created S3 Sync Client")
-
-    # Creating a ledger
-    experiment_id = config.get("experiment", {}).get("id", "exp")
-    experiment_ledger = build_dynamodb_ledger(config=config, logger=logger)
-    ledger_claimed = False
 
     if args["resume"]:
         runs = collect_resumable_runs(Path(config["run"]["root"]))
@@ -350,23 +282,13 @@ def initialize_run_settings(args: dict[str, Any]):
     # Formatting the timestamp for logging and metadata
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-    args, ledger_claimed = handle_experiment_ledger(
-        experiment_ledger=experiment_ledger,
-        ledger_claimed=ledger_claimed,
-        experiment_id=experiment_id,
-        fingerprint=fingerprint,
-        logger=logger,
-        s3_sync_client=s3_sync_client,
-        args=args,
-    )
-
     # Setting up the run metadata
     # Build the run metadata
     initialize_run_metadata(config=config, args=args, fingerprint=fingerprint, timestamp=timestamp)
 
     logger.info(f"Initialized run with fingerprint: {fingerprint.short} {'.'*20}")
 
-    return config, logger, fingerprint, s3_sync_client, experiment_ledger, ledger_claimed
+    return config, logger, fingerprint, s3_sync_client
 
 
 def create_datasets(config: dict[str, Any], logger: Logger):
@@ -535,7 +457,7 @@ def create_build_checkpoint_manager(
 
 def initialize_framework(args: dict[str, Any]):
 
-    config, logger, fingerprint, s3_sync_client, experiment_ledger, ledger_claimed = initialize_run_settings(args)
+    config, logger, fingerprint, s3_sync_client = initialize_run_settings(args)
 
     # Now creating the dataset
     logger.info(f"Creating datasets... {'.'*20}")
@@ -631,8 +553,6 @@ def initialize_framework(args: dict[str, Any]):
         best_metric=None,
         metrics_manager=metrics_manager,
         s3_client=s3_sync_client,
-        experiment_ledger=experiment_ledger,
-        ledger_claimed=ledger_claimed,
     )
 
 
@@ -680,7 +600,6 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         max_epochs=framework_opts.config["train"]["epochs"],
         shutdown_handler=shutdown_handler,
         s3_sync=framework_opts.s3_client,
-        experiment_ledger=framework_opts.experiment_ledger,
         fingerprint_short=framework_opts.fingerprint.short,
     )
 
@@ -713,6 +632,9 @@ def execute_training():
     try:
         args = parse_args()
 
+        if bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID")):
+            ledger_writer.write_status("running")
+
         framework_opts = initialize_framework(args=args)
 
         framework_opts.logger.success(f"Completed the initialization stage for the framework...{'.'*20}")
@@ -727,36 +649,19 @@ def execute_training():
 
         traceback.print_exc()
     finally:
-        if args is not None:
-            try:
-                config = load_config(args["experiment_path"])
-                fingerprint = compute_fingerprint(config=config, git_commit=args.get("git_commit"))
-                experiment_id = config.get("experiment", {}).get("id", "exp")
-                ledger = build_dynamodb_ledger(config=config, logger=None)
-                state = ledger.get_experiment_state(experiment_id=experiment_id, fingerprint=fingerprint.short) or {}
-
-                if state.get("status") == "running" and state.get("ec2_instance") == get_ec2_instance_id():
-                    if exit_code == 0 and training_result is not None:
-                        ledger.mark_success(
-                            experiment_id=experiment_id,
-                            fingerprint=fingerprint.short,
-                            checkpoint_s3_path=state.get("checkpoint_s3_path", ""),
-                            artifact_s3_path="",
-                            best_epoch=0,
-                            total_steps=training_result.get("global_step", 0),
-                            best_metric=float(training_result.get("best_metric", 0.0)),
-                        )
-                    else:
-                        reason = "spot_preemption" if exit_code >= 128 else "training_error"
-                        ledger.mark_failure(
-                            experiment_id=experiment_id,
-                            fingerprint=fingerprint.short,
-                            checkpoint_s3_path=state.get("checkpoint_s3_path", ""),
-                            total_steps=state.get("total_steps", 0),
-                            reason=reason,
-                        )
-            except Exception:
-                traceback.print_exc()
+        try:
+            if bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID")):
+                if exit_code == 0 and training_result is not None:
+                    ledger_writer.write_metric(
+                        float(training_result.get("best_metric", 0.0)),
+                        training_result.get("primary_metric", "metric"),
+                    )
+                    ledger_writer.write_status("success")
+                else:
+                    reason = "spot_preemption" if exit_code >= 128 else "training_error"
+                    ledger_writer.write_status("failed", reason=reason)
+        except Exception:
+            traceback.print_exc()
 
         if framework_opts is not None:
             experiment_name = framework_opts.config.get("experiment", {}).get("id", "exp")

@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 from pathlib import Path
 import numpy as np
@@ -35,17 +36,13 @@ from training.ema import EMA
 from training.metrics import MetricsCollection
 from training.shutdown import ShutdownHandler
 
-from infrastructure.s3_sync import S3SyncClient
-from infrastructure.dynamodb_ledger import ExperimentLedger
+import ledger_writer
+
+def _ledger_available():
+    return bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID"))
 
 
-def training_step(
-    config: dict[str, Any],
-    model: tf.keras.Model,
-    priors_cxcywh: tf.Tensor,
-    batch: dict[str, Any],
-    precision_config: PrecisionConfig,
-):
+def training_step(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig):
 
     # First get the batch elements from the dataset
     image, boxes, labels, gt_mask = batch["image"], batch["boxes"], batch["labels"], batch["gt_mask"]
@@ -565,8 +562,8 @@ def fit(
     max_epochs: int | None = None,
     best_metric: float | None = None,
     shutdown_handler: ShutdownHandler = None,
-    s3_sync: S3SyncClient = None,
-    experiment_ledger: ExperimentLedger = None,
+    s3_sync: Any = None,
+    experiment_ledger: Any = None,
     fingerprint_short: str = None,
 ):
     # Initialize overarching variables
@@ -658,17 +655,9 @@ def fit(
                             log_dir = checkpoint_manager.log_directory
                             logger.save_metric_history()
                             s3_sync.upload_training_artifacts(log_dir, run_root)
-                            experiment_id = config.get("experiment", {}).get("id", "exp")
-                            if experiment_ledger is not None and fingerprint_short:
-                                s3_chekpoint_uri = checkpoint_s3_uri(
-                                    s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
-                                )
-                                experiment_ledger.update_checkpoint_pointer(
-                                    experiment_id=experiment_id,
-                                    fingerprint=fingerprint_short,
-                                    checkpoint_s3_path=s3_chekpoint_uri,
-                                    step=global_step,
-                                )
+                            if _ledger_available():
+                                s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                                ledger_writer.write_checkpoint(s3_checkpoint_uri)
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
@@ -681,15 +670,9 @@ def fit(
                     logger.save_metric_history()
                     s3_sync.upload_training_artifacts(log_dir, run_root)
 
-                    experiment_id = config.get("experiment", {}).get("id", "exp")
-                    if experiment_ledger is not None and fingerprint_short:
-                        s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                        experiment_ledger.update_checkpoint_pointer(
-                            experiment_id=experiment_id,
-                            fingerprint=fingerprint_short,
-                            checkpoint_s3_path=s3_chekpoint_uri,
-                            step=global_step,
-                        )
+                    if _ledger_available():
+                        s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                        ledger_writer.write_checkpoint(s3_checkpoint_uri)
 
             # Logging the end of the model
             logger.metric(f"Epoch {epoch + 1} done. best_{primary_metric}={best_metric}")
@@ -708,14 +691,9 @@ def fit(
                 logger.info("Emergency training artifacts uploaded to S3")
 
                 experiment_id = config.get("experiment", {}).get("id", "exp")
-                if experiment_ledger is not None and fingerprint_short:
-                    s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                    experiment_ledger.update_checkpoint_pointer(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint_short,
-                        checkpoint_s3_path=s3_chekpoint_uri,
-                        step=global_step,
-                    )
+                if _ledger_available():
+                    s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                    ledger_writer.write_checkpoint(s3_checkpoint_uri)
 
         raise  # Raising it again so it propagates to the top
 
