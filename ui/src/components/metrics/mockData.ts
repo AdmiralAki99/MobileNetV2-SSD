@@ -6,6 +6,17 @@ export const MOCK_TRAIN_LOSS = _curve(e => 4.5 * Math.exp(-e / 45) + 0.82, 0.18)
 export const MOCK_VAL_LOSS   = _curve(e => 4.8 * Math.exp(-e / 50) + 0.94, 0.28)
 export const MOCK_MAP_CURVE  = _curve(e => 0.766 / (1 + Math.exp(-(e - 80) / 22)), 0.018)
 
+export const MOCK_LR_CURVE = Array.from({ length: 200 }, (_, i) => {
+  const e = i + 1
+  if (e <= 10) return (e / 10) * 0.01
+  const t = (e - 10) / 190
+  return 1e-5 + (0.01 - 1e-5) * 0.5 * (1 + Math.cos(Math.PI * t))
+})
+
+export const MOCK_NMS_MEAN_SCORE   = _curve(e => 0.72 - 0.18 * Math.exp(-e / 60), 0.025)
+export const MOCK_NMS_AVG_DET      = _curve(e => 3.2  + 4.1  * (1 - Math.exp(-e / 55)), 0.4)
+export const MOCK_NMS_ZERO_DET     = _curve(e => Math.max(0, 0.35 * Math.exp(-e / 40)), 0.03)
+
 export const VOC_CLASSES = [
   'aeroplane','bicycle','bird','boat','bottle','bus','car','cat',
   'chair','cow','diningtable','dog','horse','motorbike','person',

@@ -8,6 +8,7 @@ ui/dist/
 # Terraform — sensitive state and local config
 infrastructure/terraform.tfvars
 infrastructure/terraform.tfstate
+infrastructure/terraform.tfstate.*.backup
 infrastructure/terraform.tfstate.backup
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
@@ -28,3 +29,24 @@ src/mobilenetv2ssd/models/mobilenet_v2/weights/*
 /tests/__pycache__/*
 /src/mobilenetv2_ssd.egg-info/*
 /datasets/*
+
+# Large/local-only working directories
+/runs/
+/scripts/
+/logs/
+/checkpoints/
+/videos/
+/docs/
+/ref/
+/results/
+/demo_runs/
+/inference_out/
+/exported_model/
+/configs.zip
+
+# Misc local artifacts
+/help.json
+/scratch_probe.py
+/.playwright-mcp/
+/.venvs/
+/.cloudflared
