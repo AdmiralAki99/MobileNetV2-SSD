@@ -1,0 +1,45 @@
+name: Publish Model Release
+
+on:
+  repository_dispatch:
+    types: [model-promoted]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download ONNX artifacts from S3
+        env:
+          EXPERIMENT_ID: ${{ github.event.client_payload.experiment_id }}
+          FINGERPRINT: ${{ github.event.client_payload.fingerprint }}
+        run: |
+          mkdir -p release_assets
+          aws s3 cp s3://akhilesh-ml-artifacts/${EXPERIMENT_ID}/${FINGERPRINT}/model.onnx      release_assets/model_fp32.onnx
+          aws s3 cp s3://akhilesh-ml-artifacts/${EXPERIMENT_ID}/${FINGERPRINT}/model_fp16.onnx release_assets/model_fp16.onnx
+          aws s3 cp s3://akhilesh-ml-artifacts/${EXPERIMENT_ID}/${FINGERPRINT}/model_int8.onnx release_assets/model_int8.onnx
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPERIMENT_ID: ${{ github.event.client_payload.experiment_id }}
+          FINGERPRINT: ${{ github.event.client_payload.fingerprint }}
+        run: |
+          gh release create "${EXPERIMENT_ID}-${FINGERPRINT}" \
+            release_assets/model_fp32.onnx \
+            release_assets/model_fp16.onnx \
+            release_assets/model_int8.onnx \
+            --title "${EXPERIMENT_ID} (${FINGERPRINT})" \
+            --notes "Promoted model — passed mAP gate. Experiment: ${EXPERIMENT_ID}, Fingerprint: ${FINGERPRINT}"

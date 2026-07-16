@@ -3,16 +3,18 @@ import { PillButton } from './PillButton'
 import { SearchBar } from './SearchBar'
 import { GearSvg } from './icons'
 
-export type ViewMode = 'pipeline' | 'metrics' | 'etl' | 'ops' | 'deploy' | 'config'
+export type ViewMode = 'pipeline' | 'metrics' | 'etl' | 'ops' | 'deploy' | 'config' | 'anchors' | 'dataset'
 
 const TAB_TO_VIEW: Record<string, ViewMode> = {
   Pipeline: 'pipeline', Metrics: 'metrics', ETL: 'etl',
   Ops: 'ops', Deploy: 'deploy', Config: 'config',
+  Anchors: 'anchors', Dataset: 'dataset',
 }
 
 const VIEW_TO_TAB: Record<ViewMode, string> = {
   pipeline: 'Pipeline', metrics: 'Metrics', etl: 'ETL',
   ops: 'Ops', deploy: 'Deploy', config: 'Config',
+  anchors: 'Anchors', dataset: 'Dataset',
 }
 
 const STATUS_FILTERS = ['all', 'pending', 'running', 'success', 'failed']
@@ -34,7 +36,7 @@ export const Header = ({ viewMode, setViewMode, statusFilter, setStatusFilter }:
       sentinel<span style={{ color: 'var(--accent)' }}>{'>'}</span>
     </div>
     <TabGroup
-      tabs={['Pipeline', 'Metrics', 'ETL', 'Ops', 'Deploy', 'Config']}
+      tabs={['Pipeline', 'Metrics', 'ETL', 'Ops', 'Deploy', 'Config', 'Anchors', 'Dataset']}
       active={VIEW_TO_TAB[viewMode]}
       onChange={t => setViewMode(TAB_TO_VIEW[t])}
     />
