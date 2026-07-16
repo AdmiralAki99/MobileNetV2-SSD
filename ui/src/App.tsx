@@ -6,6 +6,8 @@ import { EtlView } from './components/etl/EtlView'
 import { OpsView } from './components/ops/OpsView'
 import { DeployView } from './components/deploy/DeployView'
 import { ConfigView } from './components/config/ConfigView'
+import { AnchorView } from './components/anchors/AnchorView'
+import { DatasetView } from './components/dataset/DatasetView'
 import { usePolling } from './api/hooks'
 import { fetchEtlStats, fetchEtlVideos } from './api/client'
 
@@ -35,6 +37,8 @@ export const App = ({ initialView = 'pipeline' }: Props) => {
         {viewMode === 'ops'      && <OpsView />}
         {viewMode === 'deploy'   && <DeployView />}
         {viewMode === 'config'   && <ConfigView />}
+        {viewMode === 'anchors'  && <AnchorView />}
+        {viewMode === 'dataset'  && <DatasetView />}
       </main>
     </div>
   )

@@ -51,3 +51,12 @@ export const saveConfig = (req: { category: string; name: string; content_yaml: 
   apiPost<{ path: string; name: string }>('/api/experiments/config-library/save', req)
 export const registerExperiment  = (req: RegisterRequest)  => apiPost<RegisterResponse>('/api/experiments/register', req)
 
+export const fetchDatasets   = () => apiFetch<{ datasets: import('../components/anchors/anchorTypes').DatasetEntry[] }>('/api/preprocessing/datasets').then(r => r.datasets)
+export const fetchPriors     = () => apiFetch<{ priors: string[] }>('/api/preprocessing/priors').then(r => r.priors)
+export const fetchBoxDims    = (dataset: string, split: string) =>
+  apiFetch<{ points: [number, number][] }>(`/api/preprocessing/ledger/box-sizes?dataset=${encodeURIComponent(dataset)}&split=${encodeURIComponent(split)}`)
+    .then(r => ({ norm: r.points }))
+export const deriveCluster   = (req: unknown) => apiPost<{ status: number; result: import('../components/anchors/anchorTypes').ClusterResult }>('/api/preprocessing/clustering/derive', req)
+export const exportCluster   = (req: unknown) => apiPost<{ status: number; result: import('../components/anchors/anchorTypes').ClusterResult }>('/api/preprocessing/clustering/export', req)
+export const launchTfrecords = (req: unknown) => apiPost<{ status: number; dag_run_id: string }>('/api/preprocessing/tfrecords/launch', req)
+

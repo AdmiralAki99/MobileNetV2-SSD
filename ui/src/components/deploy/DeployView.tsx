@@ -43,7 +43,6 @@ const STAGE_LOGS: Record<string, string[]> = {
   integration: ['$ pytest tests/integration/ -v', 'tests/integration/test_etl_pipeline.py::test_consensus_engine RUNNING...'],
 }
 
-/* ── primitives ──────────────────────────────────────────────── */
 
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <div style={{
@@ -79,7 +78,6 @@ const ColHeader = ({ children }: { children: React.ReactNode }) => (
   </span>
 )
 
-/* ── Stage pipeline ──────────────────────────────────────────── */
 
 const StagePipeline = ({ stages, selected, onSelect }: { stages: Stage[]; selected: Stage | null; onSelect: (s: Stage | null) => void }) => (
   <div data-testid="stage-pipeline" style={{ display: 'flex', alignItems: 'flex-start', overflowX: 'auto', padding: '6px 0 2px', gap: 0 }}>
@@ -94,7 +92,6 @@ const StagePipeline = ({ stages, selected, onSelect }: { stages: Stage[]; select
             onClick={() => onSelect(isSel ? null : stage)}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 82, cursor: 'pointer' }}
           >
-            {/* Square node — no border-radius to match flat aesthetic */}
             <div style={{
               width: 32, height: 32,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -123,7 +120,6 @@ const StagePipeline = ({ stages, selected, onSelect }: { stages: Stage[]; select
   </div>
 )
 
-/* ── component ───────────────────────────────────────────────── */
 
 export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
   const run        = cicdData?.current_run ?? {} as CiRun
@@ -145,7 +141,6 @@ export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
       }}
     >
 
-      {/* ── Current CI run ───────────────────────────────────────── */}
       <div>
         <SectionLabel>Current Run</SectionLabel>
         <Glass>
@@ -182,12 +177,10 @@ export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
         </Glass>
       </div>
 
-      {/* ── Recent runs + Stage log ───────────────────────────────── */}
       <div>
         <SectionLabel>Pipeline Detail</SectionLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '230px 1fr', gap: 14 }}>
 
-          {/* Recent runs */}
           <Glass>
             <div data-testid="recent-runs" style={{ padding: '14px 16px 10px' }}>
               <div style={{ fontSize: '8.5px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.18)', marginBottom: 12 }}>
@@ -208,12 +201,11 @@ export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
             </div>
           </Glass>
 
-          {/* Stage log */}
           <Glass>
             <div data-testid="stage-log" style={{ padding: '14px 16px', minHeight: 140 }}>
               {!selectedStage ? (
                 <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: '11px', fontFamily: 'monospace' }}>
-                  click a stage above to view logs
+                  Click a stage above to view logs
                 </div>
               ) : (
                 <>
@@ -242,7 +234,6 @@ export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
         </div>
       </div>
 
-      {/* ── Release history ───────────────────────────────────────── */}
       <div>
         <SectionLabel>Release History</SectionLabel>
         <Glass>
@@ -262,7 +253,7 @@ export const DeployView = ({ cicdData, releasesData = [] }: Props) => {
                 <StatusBadge status={r.status} />
                 <span style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.experiment}</span>
                 <span style={{ fontSize: '11px', color: '#8a9a6a', fontFamily: 'monospace', fontWeight: 600 }}>
-                  {(r.map_score * 100).toFixed(1)}%
+                  mAP {(r.map_score * 100).toFixed(1)}%
                 </span>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {(r.targets ?? []).map(t => (

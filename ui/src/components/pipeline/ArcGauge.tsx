@@ -133,7 +133,7 @@ export const ArcGauge = ({ value, label, sublabel, color = '#00d4a0', size = 68,
           color: 'rgba(255,255,255,0.32)',
           letterSpacing: '0.2px',
         }}>
-          {label}
+          {label}{' '}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
           <span style={{

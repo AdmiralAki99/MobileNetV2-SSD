@@ -93,11 +93,11 @@ export const ConfusionMatrix = ({ matrix }: Props) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 40, height: 3, background: `linear-gradient(90deg, rgba(138,154,106,0.08), ${COL_HI})` }} />
-          <span data-testid="legend-min" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>correct</span>
+          <span data-testid="legend-min" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>0</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 40, height: 3, background: `linear-gradient(90deg, rgba(74,90,106,0.06), ${COL_LO})` }} />
-          <span data-testid="legend-max" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>error</span>
+          <span data-testid="legend-max" style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}>{mx}</span>
         </div>
         <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.15)', fontFamily: 'monospace', marginLeft: 'auto' }}>
           max {mx}

@@ -14,6 +14,10 @@ from mobilenetv2ssd.core.config import load_config, PROJECT_ROOT, _is_path_key
 from mobilenetv2ssd.core.logger import build_logger_from_config, Logger
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
 
+from deploy.export.export import run_export
+from deploy.export.runner_tf import run_savedmodel_stage
+
+
 from datasets.collate import (
     create_training_dataset_from_tfrecords,
     create_validation_dataset_from_tfrecords,
@@ -695,6 +699,13 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         log_dir = framework_opts.logger.job_dir
         framework_opts.s3_client.upload_final_artifacts(log_dir, run_root)
         framework_opts.logger.success("Final artifacts uploaded to S3 artifact bucket")
+        
+    deploy_config_path = framework_opts.config["experiment"].get("deploy_config")
+    if deploy_config_path:
+        from mobilenetv2ssd.core.config import PROJECT_ROOT
+        checkpoint_dir = framework_opts.logger.job_dir / "checkpoints" / "best"
+        run_export(deploy_config=PROJECT_ROOT / deploy_config_path, checkpoint_path=str(checkpoint_dir), output_dir=None)
+        framework_opts.logger.success("SavedModel exported")
 
     return training_result
 

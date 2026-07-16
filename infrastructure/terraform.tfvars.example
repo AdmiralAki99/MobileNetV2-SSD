@@ -1,0 +1,45 @@
+# =============================================================================
+# TERRAFORM.TFVARS.EXAMPLE - Template for your personal configuration
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your own values.
+# terraform.tfvars is gitignored — it will never be committed.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# =============================================================================
+
+# ---- AWS ----
+aws_region = "us-east-1"
+
+# ---- Compute ----
+instance_type  = "g4dn.2xlarge" # 1x T4 GPU, ~$0.75/hr on-demand
+spot_max_price = "1.00"        # Max you'll pay per hour (fleet tries all AZs automatically)
+
+# ---- SSH ----
+# Replace with your actual key pair name (created in AWS Console > EC2 > Key Pairs)
+key_pair_name = "your-key-pair-name"
+
+# ---- Docker ----
+# If using ECR: "<account_id>.dkr.ecr.us-east-1.amazonaws.com/mobilenetv2-ssd:latest"
+# If using Docker Hub: "yourusername/mobilenetv2-ssd:latest"
+docker_image = "yourusername/mobilenetv2-ssd:latest"
+
+# ---- Experiment ----
+experiment_config = "../configs/experiments/exp002_cloud_run.yaml"
+
+# ---- S3 ----
+s3_checkpoint_bucket = "your-ml-checkpoints-bucket"
+s3_dataset_bucket    = "your-ml-datasets-bucket"
+
+# ---- Network ----
+# Restrict SSH to your IP for security. Find yours at: https://checkip.amazonaws.com
+# Format: "YOUR_IP/32" (the /32 means "only this one IP")
+allowed_ssh_cidr = "0.0.0.0/32"   # Replace with your current IP + /32
+
+# ---- ETL variables ----
+etl_docker_image = "yourusername/mobilenetv2-ssd-etl:latest"
+
+# WARNING: never commit a real database URL. Use a placeholder here and set
+# the real value only in your local terraform.tfvars (gitignored) or via
+# the TF_VAR_database_url environment variable.
+database_url = "postgresql://<user>:<password>@<host>:5432/<db_name>"

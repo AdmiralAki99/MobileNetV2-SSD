@@ -70,7 +70,7 @@ export const StatTile = ({ label, value, sub, accentColor, sparkData }: Props) =
         style={{
           display: 'block',
           fontSize: '28px', fontWeight: 700,
-          color: '#dde2e0', letterSpacing: '-1.5px', lineHeight: 1,
+          color: accentColor ?? '#dde2e0', letterSpacing: '-1.5px', lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
         }}
       >

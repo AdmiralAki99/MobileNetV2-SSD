@@ -52,7 +52,7 @@ def _get_pending_videos(config_path: str) -> list:
     if not all_files:
         return []
 
-    db_url = config["etl"]["database"]["url"]
+    db_url = os.environ.get("DATABASE_URL") or config["etl"]["database"]["url"]
     parsed = urlparse(db_url)
     conn = psycopg2.connect(
         host=parsed.hostname,
