@@ -162,10 +162,10 @@ def _ledger_available():
     return bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID"))
 
 
-def _maybe_download_config(experiment_path: Path) -> Path:
+def _maybe_download_config(experiment_path) -> Path:
     uri = str(experiment_path)
     if not uri.startswith("s3://"):
-        return experiment_path
+        return Path(uri)
     import boto3
     import tempfile
 
@@ -648,7 +648,7 @@ def execute_training():
 
     try:
         args = parse_args()
-        args["experiment_path"] = _maybe_download_config(Path(args["experiment_path"]))
+        args["experiment_path"] = _maybe_download_config(args["experiment_path"])
 
         if _ledger_available():
             import ledger_writer
