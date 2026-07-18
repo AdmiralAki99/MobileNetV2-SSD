@@ -44,7 +44,7 @@ from training.resume import (
 from training.shutdown import ShutdownHandler
 from training.engine import fit
 
-from infrastructure.s3_sync import build_s3_sync, parse_bucket_uri, S3SyncClient
+from infrastructure.s3_sync import build_s3_sync, parse_bucket_uri
 from infrastructure.util import download_checkpoint_from_s3
 import os
 
@@ -166,7 +166,8 @@ def _maybe_download_config(experiment_path: Path) -> Path:
     uri = str(experiment_path)
     if not uri.startswith("s3://"):
         return experiment_path
-    import boto3, tempfile
+    import boto3
+    import tempfile
     bucket = uri.removeprefix("s3://").split("/", 1)[0]
     key = uri.removeprefix("s3://").split("/", 1)[1]
     tmp = Path(tempfile.mkdtemp()) / Path(key).name
