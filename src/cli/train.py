@@ -168,6 +168,7 @@ def _maybe_download_config(experiment_path: Path) -> Path:
         return experiment_path
     import boto3
     import tempfile
+
     bucket = uri.removeprefix("s3://").split("/", 1)[0]
     key = uri.removeprefix("s3://").split("/", 1)[1]
     tmp = Path(tempfile.mkdtemp()) / Path(key).name
@@ -651,6 +652,7 @@ def execute_training():
 
         if _ledger_available():
             import ledger_writer
+
             ledger_writer.write_status("running")
 
         framework_opts = initialize_framework(args=args)
@@ -670,6 +672,7 @@ def execute_training():
         try:
             if _ledger_available():
                 import ledger_writer
+
                 if exit_code == 0 and training_result is not None:
                     ledger_writer.write_metric(
                         float(training_result.get("best_metric", 0.0)),

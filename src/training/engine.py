@@ -40,6 +40,7 @@ from datasets.base import load_class_names
 from infrastructure.s3_sync import S3SyncClient
 import os
 
+
 def _ledger_available():
     return bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID"))
 
@@ -714,7 +715,10 @@ def fit(
                             s3_sync.upload_training_artifacts(log_dir, run_root)
                             if _ledger_available():
                                 import ledger_writer
-                                s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+
+                                s3_chekpoint_uri = checkpoint_s3_uri(
+                                    s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
+                                )
                                 ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
             # Checkpointing the last model at the end of the epoch
@@ -731,6 +735,7 @@ def fit(
 
                     if _ledger_available():
                         import ledger_writer
+
                         s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
                         ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
@@ -753,6 +758,7 @@ def fit(
 
                 if _ledger_available():
                     import ledger_writer
+
                     s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
                     ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
