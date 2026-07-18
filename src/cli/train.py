@@ -608,7 +608,6 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         max_epochs=framework_opts.config["train"]["epochs"],
         shutdown_handler=shutdown_handler,
         s3_sync=framework_opts.s3_client,
-        experiment_ledger=framework_opts.experiment_ledger,
     )
 
     # Saving the Model weights:
