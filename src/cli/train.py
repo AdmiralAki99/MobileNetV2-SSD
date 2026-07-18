@@ -145,7 +145,7 @@ def parse_args():
     args = parser.parse_args()
 
     return {
-        "experiment_path": Path(args.experiment_path),
+        "experiment_path": args.experiment_path,
         "config_root": Path(args.config_root),
         "git_commit": args.git_commit,
         "debug": args.debug,
