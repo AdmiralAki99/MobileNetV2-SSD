@@ -12,6 +12,7 @@ from mobilenetv2ssd.models.factory import build_ssd_model
 from training.ema import build_ema
 from deploy import load_deploy_config
 
+
 def download_checkpoint(checkpoint_path: str):
     if checkpoint_path.startswith("s3://"):
         # Need to download the checkpoint from S3 to a local path

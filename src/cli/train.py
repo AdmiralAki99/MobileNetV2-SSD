@@ -698,12 +698,15 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         log_dir = framework_opts.logger.job_dir
         framework_opts.s3_client.upload_final_artifacts(log_dir, run_root)
         framework_opts.logger.success("Final artifacts uploaded to S3 artifact bucket")
-        
+
     deploy_config_path = framework_opts.config["experiment"].get("deploy_config")
     if deploy_config_path:
         from mobilenetv2ssd.core.config import PROJECT_ROOT
+
         checkpoint_dir = framework_opts.logger.job_dir / "checkpoints" / "best"
-        run_export(deploy_config=PROJECT_ROOT / deploy_config_path, checkpoint_path=str(checkpoint_dir), output_dir=None)
+        run_export(
+            deploy_config=PROJECT_ROOT / deploy_config_path, checkpoint_path=str(checkpoint_dir), output_dir=None
+        )
         framework_opts.logger.success("SavedModel exported")
 
     return training_result

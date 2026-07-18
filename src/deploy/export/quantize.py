@@ -42,6 +42,7 @@ def validate_onnx(onnx_path: Path, deploy_config: dict[str, Any]):
     assert boxes.shape == (B, number_of_anchors, 4), f"Bad boxes shape: {boxes.shape}"
     assert scores.shape == (B, number_of_anchors, num_classes), f"Bad scores shape: {scores.shape}"
 
+
 class _ImageCalibrationReader(CalibrationDataReader):
     def __init__(self, calibration_dir: Path, input_name: str, H: int, W: int, number_of_images: int):
         extensions = ("*.jpg", "*.jpeg", "*.png")
@@ -145,7 +146,7 @@ def run_quantize(deploy_config: Path, calibration_images_dir: Path, num_calibrat
         validate_onnx(onnx_path=quantized_model_path, deploy_config=deploy_config)
 
         print(f"PASS — quantized model saved to {quantized_model_path}")
-        
+
         return 0
 
     except Exception:

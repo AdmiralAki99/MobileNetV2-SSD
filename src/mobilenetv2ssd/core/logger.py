@@ -393,12 +393,21 @@ class Logger:
             json.dump(self._metric_history, file, indent=2)
 
     def log_dashboard_epoch(
-        self, train_loss: float, map_score: float, learning_rate: float,
-        nms_mean_score: float, nms_avg_det: float, nms_zero_det: float,
+        self,
+        train_loss: float,
+        map_score: float,
+        learning_rate: float,
+        nms_mean_score: float,
+        nms_avg_det: float,
+        nms_zero_det: float,
     ):
         self._dashboard_metrics.append_epoch(
-            train_loss=train_loss, map_score=map_score, learning_rate=learning_rate,
-            nms_mean_score=nms_mean_score, nms_avg_det=nms_avg_det, nms_zero_det=nms_zero_det,
+            train_loss=train_loss,
+            map_score=map_score,
+            learning_rate=learning_rate,
+            nms_mean_score=nms_mean_score,
+            nms_avg_det=nms_avg_det,
+            nms_zero_det=nms_zero_det,
         )
 
     def set_dashboard_class_ap(self, class_ap: dict):

@@ -354,9 +354,7 @@ def evaluate(
             if not dashboard_images:
                 batch_image_shape = tf.shape(batch["image"]).numpy()
                 image_size = (int(batch_image_shape[1]), int(batch_image_shape[2]))
-                dashboard_images = sample_detection_images(
-                    predictions, image_size=image_size, class_names=class_names
-                )
+                dashboard_images = sample_detection_images(predictions, image_size=image_size, class_names=class_names)
 
             if max_steps is not None and step + 1 >= max_steps:
                 break
