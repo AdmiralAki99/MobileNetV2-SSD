@@ -15,7 +15,6 @@ from mobilenetv2ssd.core.logger import build_logger_from_config, Logger
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
 
 from deploy.export.export import run_export
-from deploy.export.runner_tf import run_savedmodel_stage
 
 
 from datasets.collate import (
