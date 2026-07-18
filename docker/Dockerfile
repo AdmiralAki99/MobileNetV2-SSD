@@ -39,4 +39,4 @@ WORKDIR /app/src
 ENTRYPOINT ["python", "-m", "cli.train"]
 
 # Default arguments (can be overridden at runtime)
-CMD ["--experiment_path", "../configs/experiments/exp001_baseline.yaml"]
+CMD ["--experiment_path", "../configs/experiments/exp002_cloud_run.yaml"]
