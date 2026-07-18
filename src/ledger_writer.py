@@ -30,6 +30,14 @@ def write_checkpoint(s3_path: str):
     )
 
 
+def write_artifact(s3_path: str):
+    _table().update_item(
+        Key=_key(),
+        UpdateExpression="SET artifact_s3_path = :p",
+        ExpressionAttributeValues={":p": s3_path},
+    )
+
+
 def write_status(status: str, reason: str | None = None):
     expr = "SET #s = :s, completed_at = :t"
     names = {"#s": "status"}

@@ -27,6 +27,7 @@ from mobilenetv2ssd.core.utils import (
     ground_truth_box_bad_frac,
     inference_function,
     checkpoint_s3_uri,
+    artifact_s3_uri,
 )
 from mobilenetv2ssd.core.exceptions import GracefulShutdownException
 
@@ -711,6 +712,7 @@ def fit(
                             logger.save_metric_history()
                             logger.save_dashboard_metrics()
                             s3_sync.upload_training_artifacts(log_dir, run_root)
+                            s3_sync.upload_best_to_artifacts(log_dir, run_root)
                             if _ledger_available():
                                 import ledger_writer
 
@@ -718,6 +720,9 @@ def fit(
                                     s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
                                 )
                                 ledger_writer.write_checkpoint(s3_chekpoint_uri)
+                                ledger_writer.write_artifact(
+                                    artifact_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                                )
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:

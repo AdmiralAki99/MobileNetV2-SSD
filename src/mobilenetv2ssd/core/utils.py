@@ -527,3 +527,9 @@ def checkpoint_s3_uri(s3_sync, log_dir: Path, run_root: Path):
     rel = (log_dir.relative_to(run_root.parent) / "checkpoints" / "last").as_posix()
     parts = [p for p in [s3_sync._checkpoint_prefix, rel] if p]
     return "s3://" + s3_sync._checkpoint_bucket + "/" + "/".join(parts)
+
+
+def artifact_s3_uri(s3_sync, log_dir: Path, run_root: Path):
+    rel = (log_dir.relative_to(run_root.parent) / "checkpoints" / "best").as_posix()
+    parts = [p for p in [s3_sync._artifact_prefix, rel] if p]
+    return "s3://" + s3_sync._artifact_bucket + "/" + "/".join(parts)

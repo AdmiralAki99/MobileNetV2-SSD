@@ -242,6 +242,28 @@ class S3SyncClient:
             s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
             self._client.upload_file(Filename=str(checkpoint_metadata), Bucket=self._checkpoint_bucket, Key=s3_key)
 
+    def upload_best_to_artifacts(self, log_directory: Path, run_root: Path):
+        if self._artifact_bucket is None:
+            return
+
+        best_checkpoint_dir = log_directory / "checkpoints" / "best"
+        if not best_checkpoint_dir.exists():
+            return
+
+        for ckpt_file in best_checkpoint_dir.glob("ckpt-*"):
+            if ckpt_file.is_file():
+                relative_path = ckpt_file.relative_to(run_root.parent)
+                s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
+                self._client.upload_file(Filename=str(ckpt_file), Bucket=self._artifact_bucket, Key=s3_key)
+                if self._logger:
+                    self._logger.info(f"Uploaded best artifact: {s3_key}")
+
+        checkpoint_metadata = best_checkpoint_dir / "checkpoint"
+        if checkpoint_metadata.exists():
+            relative_path = checkpoint_metadata.relative_to(run_root.parent)
+            s3_key = f"{self._artifact_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(Filename=str(checkpoint_metadata), Bucket=self._artifact_bucket, Key=s3_key)
+
     def upload_final_artifacts(self, log_directory: Path, run_root: Path):
         #  log_directory: Path to timestamped log directory (e.g., logs/20260214_123456/)
         #  run_root: Path to run root directory (e.g., runs/)
