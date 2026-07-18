@@ -9,6 +9,7 @@ ui/dist/
 infrastructure/terraform.tfvars
 infrastructure/terraform.tfstate
 infrastructure/terraform.tfstate.backup
+infrastructure/terraform.tfstate.*.backup
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
 
@@ -26,6 +27,7 @@ infrastructure/.terraform.lock.hcl
 /*.txt
 /docs/flowcharts/*
 /docs/images/*
+/docs/refs/*
 **/__pycache__/
 **/*.pyc
 **/*.pyo
