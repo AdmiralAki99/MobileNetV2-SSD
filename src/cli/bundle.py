@@ -8,6 +8,9 @@ from training.metrics import MetricsCollection
 from training.checkpoints import CheckpointManager
 from training.ema import EMA
 from training.amp import AMPContext
+from infrastructure.dynamodb_ledger import ExperimentLedger
+
+from infrastructure.s3_sync import S3SyncClient
 
 
 @dataclass
@@ -40,10 +43,10 @@ class TrainingBundle:
     best_metric: int | None = None
 
     # S3 Sync Client for storage
-    s3_client: Any | None = None
+    s3_client: S3SyncClient | None = None
 
     # Experiment Factors
-    experiment_ledger: Any | None = None
+    experiment_ledger: ExperimentLedger | None = None
     ledger_claimed: bool = False
 
 

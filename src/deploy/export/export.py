@@ -1,10 +1,8 @@
 from pathlib import Path
 import subprocess
-import argparse
 from typing import Any
 import tensorflow as tf
 import numpy as np
-import json
 import traceback
 import sys
 
@@ -13,30 +11,6 @@ from mobilenetv2ssd.models.ssd.orchestration.priors_orch import build_priors_fro
 from mobilenetv2ssd.models.factory import build_ssd_model
 from training.ema import build_ema
 from deploy import load_deploy_config
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Export a MobileNetV2 SSD model.")
-    parser.add_argument("--deploy_config", type=str, required=True, help="Path to the deployment configuration file.")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Checkpoint directory (local path or s3:// URI).")
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default=None,
-        help="Directory to write saved_model/ and priors_cxcywh.npy. Overrides deploy config paths.",
-    )
-    parser.add_argument("--print_config", action="store_true", help="Print the deployment config.")
-
-    # Creating the args dictionary
-    args = parser.parse_args()
-
-    return {
-        "deploy_config": Path(args.deploy_config),
-        "checkpoint": args.checkpoint,
-        "output_dir": Path(args.output_dir) if args.output_dir else None,
-        "print_config": args.print_config,
-    }
-
 
 def download_checkpoint(checkpoint_path: str):
     if checkpoint_path.startswith("s3://"):
@@ -108,21 +82,14 @@ def build_serve_model(model: tf.keras.Model, priors_np: np.ndarray, deploy_confi
     return serve_model
 
 
-def execute_export():
+def run_export(deploy_config: Path, checkpoint_path: str, output_dir: Path | None):
     # The entire export pipeline so that an ONNX model can be created
     try:
-        args = parse_args()
 
         for gpu in tf.config.list_physical_devices("GPU"):
             tf.config.experimental.set_memory_growth(gpu, True)
 
-        deploy_config = load_deploy_config(args["deploy_config"])
-
-        # Checking if this is a print config run (info run)
-        if args["print_config"]:
-            # Need to print the config and leave
-            print(json.dumps(deploy_config, indent=2))
-            return 1
+        deploy_config = load_deploy_config(deploy_config)
 
         # Now loading in the experiment path for the deploy config
         experiment_path = PROJECT_ROOT / deploy_config["experiment_path"]
@@ -134,7 +101,7 @@ def execute_export():
         ema = build_ema(config=experiment_config, model=model)
 
         # Now need to download that checkpoint
-        checkpoint_path = download_checkpoint(args["checkpoint"])
+        checkpoint_path = download_checkpoint(checkpoint_path)
         index_files = list(checkpoint_path.glob("ckpt-*.index"))  # Getting all the checkpoint paths from the directory
         if not index_files:
             raise ValueError(f"No checkpoint files in {checkpoint_path}")
@@ -153,8 +120,8 @@ def execute_export():
         chkpt.restore(restore_path).expect_partial()
 
         # Saving the model
-        if args["output_dir"]:
-            model_save_path = args["output_dir"] / "saved_model"
+        if output_dir:
+            model_save_path = output_dir / "saved_model"
         else:
             model_save_path = PROJECT_ROOT / deploy_config["deploy"]["saved_model_path"]
         model_save_path.mkdir(parents=True, exist_ok=True)
@@ -184,7 +151,3 @@ def execute_export():
     except Exception:
         traceback.print_exc()
         return 1
-
-
-if __name__ == "__main__":
-    sys.exit(execute_export())  # This thing prefers int returns

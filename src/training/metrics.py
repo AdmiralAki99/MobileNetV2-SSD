@@ -4,6 +4,8 @@ from typing import Any, Literal
 import numpy as np
 import tensorflow as tf
 
+from datasets.base import load_class_names
+
 
 @dataclass
 class Detection:
@@ -355,15 +357,20 @@ def build_metrics_from_config(config: dict[str, Any]):
     num_classes = config["num_classes"]
     metrics_config = config.get("eval", {}).get("metrics", {})
 
+    class_names_list = load_class_names(config["data"]["classes_file"])
+    class_names = {i + 1: name for i, name in enumerate(class_names_list)}
+
     metrics = {}
 
-    for name, config in metrics_config.items():
-        metric_type = config.get("type", "voc_ap")
-        iou_thresholds = config.get("iou_thresholds", [0.5])
+    for name, metric_config in metrics_config.items():
+        metric_type = metric_config.get("type", "voc_ap")
+        iou_thresholds = metric_config.get("iou_thresholds", [0.5])
 
         style = "coco" if metric_type == "coco_map" else "voc"
 
-        metrics[name] = MeanAveragePrecision(num_classes=num_classes, iou_thresholds=iou_thresholds, style=style)
+        metrics[name] = MeanAveragePrecision(
+            num_classes=num_classes, iou_thresholds=iou_thresholds, style=style, class_names=class_names
+        )
 
     return MetricsCollection(metrics)
 

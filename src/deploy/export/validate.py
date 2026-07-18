@@ -1,32 +1,12 @@
 import onnxruntime as ort
 import sys
 import numpy as np
-import json
-import argparse
 import traceback
 from pathlib import Path
 from typing import Any
 
 from deploy import load_deploy_config
 from mobilenetv2ssd.core.config import PROJECT_ROOT
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Validate a MobileNetV2 SSD ONNX model.")
-    parser.add_argument("--deploy_config", type=str, required=True, help="Path to the deployment configuration file.")
-    parser.add_argument(
-        "--output_dir", type=str, default=None, help="Directory containing model.onnx. Overrides deploy config path."
-    )
-    parser.add_argument("--print_config", action="store_true", help="Print the deployment config.")
-
-    # Creating the args dictionary
-    args = parser.parse_args()
-
-    return {
-        "deploy_config": Path(args.deploy_config),
-        "output_dir": Path(args.output_dir) if args.output_dir else None,
-        "print_config": args.print_config,
-    }
 
 
 def validate_onnx(onnx_path: Path, deploy_config: dict[str, Any]):
@@ -63,22 +43,15 @@ def validate_onnx(onnx_path: Path, deploy_config: dict[str, Any]):
     print("PASS")
 
 
-def execute_validate():
+def run_validate(deploy_config: Path, output_dir: Path | None):
     try:
 
-        # Get the args
-        args = parse_args()
-
         # Read the config
-        deploy_config = load_deploy_config(args["deploy_config"])
-
-        if args["print_config"]:
-            print(json.dumps(deploy_config, indent=2))
-            return 0
+        deploy_config = load_deploy_config(deploy_config)
 
         # Resolving the ONNX path
-        if args["output_dir"]:
-            onnx_path = args["output_dir"] / "model.onnx"
+        if output_dir:
+            onnx_path = output_dir / "model.onnx"
         else:
             onnx_path = PROJECT_ROOT / deploy_config["deploy"]["onnx_path"]
 
@@ -93,4 +66,4 @@ def execute_validate():
 
 
 if __name__ == "__main__":
-    sys.exit(execute_validate())
+    sys.exit(run_validate())

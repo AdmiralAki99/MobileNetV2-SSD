@@ -1,8 +1,6 @@
-import argparse
 from pathlib import Path
 import traceback
 from typing import Any
-import sys
 
 import onnxruntime as ort
 from onnxruntime.quantization import quantize_static, CalibrationDataReader, QuantFormat, QuantType
@@ -11,35 +9,6 @@ import numpy as np
 
 from deploy import load_deploy_config
 from mobilenetv2ssd.core.config import PROJECT_ROOT
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Quantize a MobileNetV2 SSD ONNX model.")
-    parser.add_argument("--deploy_config", type=str, required=True, help="Path to the deployment configuration file.")
-    parser.add_argument(
-        "--calibration_images", type=str, required=True, help="Path to the calibration images directory."
-    )
-    parser.add_argument(
-        "--num_calibration", type=int, required=False, default=200, help="Number of Images to calibrate on."
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default=None,
-        help="Directory containing model.onnx and where to write model_int8.onnx. Overrides deploy config paths.",
-    )
-    parser.add_argument("--print_config", action="store_true", help="Print the deployment config.")
-
-    # Creating the args dictionary
-    args = parser.parse_args()
-
-    return {
-        "deploy_config": Path(args.deploy_config),
-        "calibration_images_dir": Path(args.calibration_images),
-        "num_calibration": args.num_calibration,
-        "output_dir": Path(args.output_dir) if args.output_dir else None,
-        "print_config": args.print_config,
-    }
 
 
 def validate_onnx(onnx_path: Path, deploy_config: dict[str, Any]):
@@ -72,7 +41,6 @@ def validate_onnx(onnx_path: Path, deploy_config: dict[str, Any]):
 
     assert boxes.shape == (B, number_of_anchors, 4), f"Bad boxes shape: {boxes.shape}"
     assert scores.shape == (B, number_of_anchors, num_classes), f"Bad scores shape: {scores.shape}"
-
 
 class _ImageCalibrationReader(CalibrationDataReader):
     def __init__(self, calibration_dir: Path, input_name: str, H: int, W: int, number_of_images: int):
@@ -120,17 +88,16 @@ class _ImageCalibrationReader(CalibrationDataReader):
         return {self._input_name: image}  # ONNX requrires the keys to be similar to reference the info
 
 
-def execute_quantize():
+def run_quantize(deploy_config: Path, calibration_images_dir: Path, num_calibration: int, output_path: Path | None):
     try:
-        args = parse_args()
 
         # Load the deploy config
-        deploy_config = load_deploy_config(args["deploy_config"])
+        deploy_config = load_deploy_config(deploy_config)
 
         # Resolving the paths
-        if args["output_dir"]:
-            onnx_path = args["output_dir"] / "model.onnx"
-            quantized_model_path = args["output_dir"] / "model_int8.onnx"
+        if output_path:
+            onnx_path = output_path / "model.onnx"
+            quantized_model_path = output_path / "model_int8.onnx"
         else:
             onnx_path = PROJECT_ROOT / deploy_config["deploy"]["onnx_path"]
             quantized_model_path = PROJECT_ROOT / deploy_config["deploy"]["quantized_onnx_path"]
@@ -139,7 +106,7 @@ def execute_quantize():
         H, W = deploy_config["deploy"]["input"]["size"][0], deploy_config["deploy"]["input"]["size"][1]
 
         # Getting the number of images
-        number_of_images = int(args["num_calibration"])
+        number_of_images = int(num_calibration)
 
         # Starting the session for quantization
         session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
@@ -155,7 +122,7 @@ def execute_quantize():
 
         # Creating that Calibration Reader
         calibration_reader = _ImageCalibrationReader(
-            calibration_dir=args["calibration_images_dir"],
+            calibration_dir=calibration_images_dir,
             input_name=input_name,
             H=H,
             W=W,
@@ -178,11 +145,9 @@ def execute_quantize():
         validate_onnx(onnx_path=quantized_model_path, deploy_config=deploy_config)
 
         print(f"PASS — quantized model saved to {quantized_model_path}")
+        
+        return 0
 
     except Exception:
         traceback.print_exc()
         return 1
-
-
-if __name__ == "__main__":
-    sys.exit(execute_quantize())

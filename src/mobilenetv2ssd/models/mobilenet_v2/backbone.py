@@ -296,14 +296,14 @@ def build_backbone(
 def build_custom_mobilenetv2_backbone(input_shape=(224, 224, 3), alpha: float = 1.0, name="mobilenetv2_backbone"):
     input_layer = Input(shape=input_shape)
     mobilenetv2 = MobileNetV2(alpha=alpha, name=name)
-    mobilenetv2.call(input_layer)
+    mobilenetv2(input_layer)
     return mobilenetv2
 
 
 # Function to load the weights from a reference model
 def load_mobilenetv2_weights(model: MobileNetV2, weights_path: str):
     # Loading the model weights from the given path
-    model = model.load_weights(weights_path)
+    model.load_weights(weights_path)
 
 
 # Creating the Reference Table For the transplant

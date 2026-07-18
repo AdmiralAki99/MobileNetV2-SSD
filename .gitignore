@@ -12,6 +12,11 @@ infrastructure/terraform.tfstate.backup
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
 
+# Local debug directories
+/exported_model/*
+/ref
+/scripts
+
 # Removing the checkpoint files from notebook directory
 /notebooks/.ipynb_checkpoints/*
 /.ipynb_checkpoints/*
@@ -28,3 +33,17 @@ src/mobilenetv2ssd/models/mobilenet_v2/weights/*
 /tests/__pycache__/*
 /src/mobilenetv2_ssd.egg-info/*
 /datasets/*
+
+# Local dev/test artifacts
+/.playwright-mcp/
+/logs/
+/checkpoints/
+/runs/
+/demo_runs/
+/results/
+/inference_out/
+/videos/
+
+# venvs
+/.venvs/*
+/.venv-test/*

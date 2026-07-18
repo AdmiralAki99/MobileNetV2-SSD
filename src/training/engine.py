@@ -1,4 +1,3 @@
-import os
 import tensorflow as tf
 from pathlib import Path
 import numpy as np
@@ -35,14 +34,20 @@ from training.amp import AMPContext
 from training.ema import EMA
 from training.metrics import MetricsCollection
 from training.shutdown import ShutdownHandler
+from training.dashboard_metrics import build_confusion_matrix, sample_detection_images
+from datasets.base import load_class_names
 
-import ledger_writer
-
-def _ledger_available():
-    return bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID"))
+from infrastructure.s3_sync import S3SyncClient
+from infrastructure.dynamodb_ledger import ExperimentLedger
 
 
-def training_step(config: dict[str, Any], model: tf.keras.Model, priors_cxcywh: tf.Tensor, batch: dict[str, Any], precision_config: PrecisionConfig):
+def training_step(
+    config: dict[str, Any],
+    model: tf.keras.Model,
+    priors_cxcywh: tf.Tensor,
+    batch: dict[str, Any],
+    precision_config: PrecisionConfig,
+):
 
     # First get the batch elements from the dataset
     image, boxes, labels, gt_mask = batch["image"], batch["boxes"], batch["labels"], batch["gt_mask"]
@@ -301,6 +306,16 @@ def evaluate(
     # Reset the metrics manager
     metrics_manager.reset()
 
+    # Dashboard confusion matrix + sample images accumulate across the whole validation set
+    num_classes = config["num_classes"]
+    class_names_list = load_class_names(config["data"]["classes_file"])
+    class_names = {i + 1: name for i, name in enumerate(class_names_list)}
+    dashboard_conf_mat = np.zeros((num_classes, num_classes), dtype=np.int64)
+    dashboard_images: list[dict[str, Any]] = []
+    dashboard_nms_mean_scores: list[float] = []
+    dashboard_nms_avg_dets: list[float] = []
+    dashboard_nms_zero_dets: list[float] = []
+
     @tf.function(reduce_retracing=True)
     def _compiled_eval_step(batch):
         return evaluate_step(
@@ -331,6 +346,17 @@ def evaluate(
 
             # Log the metrics
             metrics_manager.update(predictions, ground_truths)
+
+            # Dashboard confusion matrix accumulates over every batch in the validation set
+            dashboard_conf_mat += build_confusion_matrix(predictions, ground_truths, num_classes=num_classes)
+
+            # Sample detection images are only grabbed once, from the first batch
+            if not dashboard_images:
+                batch_image_shape = tf.shape(batch["image"]).numpy()
+                image_size = (int(batch_image_shape[1]), int(batch_image_shape[2]))
+                dashboard_images = sample_detection_images(
+                    predictions, image_size=image_size, class_names=class_names
+                )
 
             if max_steps is not None and step + 1 >= max_steps:
                 break
@@ -403,6 +429,12 @@ def evaluate(
                 nms_health_metrics = calculate_nms_health_scores(
                     evaluation_output["pred_scores"], evaluation_output["valid_detections"]
                 )
+
+                # Dashboard NMS health curve, averaged across batches at the end of the epoch
+                dashboard_nms_mean_scores.append(float(nms_health_metrics["mean_valid"]))
+                dashboard_nms_avg_dets.append(float(nms_health_metrics["average_valid_det"]))
+                dashboard_nms_zero_dets.append(float(nms_health_metrics["zero_valid_det"]))
+
                 ground_truth_health_metrics = calculate_gt_health_scores(
                     batch["boxes"], batch["labels"], batch["gt_mask"]
                 )
@@ -537,11 +569,21 @@ def evaluate(
                 # mAP Metrics
                 logger.log_scalars(tag="val", values=metrics_manager.compute(), step=eval_step_offset + step)
 
+    if logger is not None:
+        logger.set_dashboard_confusion_matrix(dashboard_conf_mat)
+        logger.set_dashboard_sample_images(dashboard_images)
+
     inference_function(
         config=config, dataset_batch=batch, model_prediction=evaluation_output, logger=logger, global_step=train_step
     )
 
-    return metrics_manager.compute(), eval_step_offset + step + 1
+    dashboard_nms_summary = {
+        "mean_score": float(np.mean(dashboard_nms_mean_scores)) if dashboard_nms_mean_scores else 0.0,
+        "avg_det": float(np.mean(dashboard_nms_avg_dets)) if dashboard_nms_avg_dets else 0.0,
+        "zero_det": float(np.mean(dashboard_nms_zero_dets)) if dashboard_nms_zero_dets else 0.0,
+    }
+
+    return metrics_manager.compute(), dashboard_nms_summary, eval_step_offset + step + 1
 
 
 def fit(
@@ -562,8 +604,8 @@ def fit(
     max_epochs: int | None = None,
     best_metric: float | None = None,
     shutdown_handler: ShutdownHandler = None,
-    s3_sync: Any = None,
-    experiment_ledger: Any = None,
+    s3_sync: S3SyncClient = None,
+    experiment_ledger: ExperimentLedger = None,
     fingerprint_short: str = None,
 ):
     # Initialize overarching variables
@@ -624,7 +666,7 @@ def fit(
 
             if epoch % eval_every == 0 or epoch == epochs - 1:
                 # Evaluate the model
-                eval_metrics, global_eval_step = evaluate(
+                eval_metrics, nms_summary, global_eval_step = evaluate(
                     config,
                     model,
                     priors_cxcywh,
@@ -640,6 +682,19 @@ def fit(
                 )
                 logger.log_scalars(tag="val", values=eval_metrics, step=global_step)
 
+                # Dashboard per-epoch curves + class AP breakdown
+                logger.log_dashboard_epoch(
+                    train_loss=float(train_loss.numpy()),
+                    map_score=float(eval_metrics.get(primary_metric, 0.0)),
+                    learning_rate=float(optimizer.learning_rate.numpy()),
+                    nms_mean_score=nms_summary["mean_score"],
+                    nms_avg_det=nms_summary["avg_det"],
+                    nms_zero_det=nms_summary["zero_det"],
+                )
+                logger.set_dashboard_class_ap(
+                    {key.split("AP/")[-1]: value for key, value in eval_metrics.items() if "AP/" in key}
+                )
+
                 # Checking for the best metric
                 score = float(eval_metrics.get(primary_metric, float("-inf")))
                 if score > best_metric:
@@ -654,10 +709,19 @@ def fit(
                             run_root = Path(config["run"]["root"])
                             log_dir = checkpoint_manager.log_directory
                             logger.save_metric_history()
+                            logger.save_dashboard_metrics()
                             s3_sync.upload_training_artifacts(log_dir, run_root)
-                            if _ledger_available():
-                                s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                                ledger_writer.write_checkpoint(s3_checkpoint_uri)
+                            experiment_id = config.get("experiment", {}).get("id", "exp")
+                            if experiment_ledger is not None and fingerprint_short:
+                                s3_chekpoint_uri = checkpoint_s3_uri(
+                                    s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
+                                )
+                                experiment_ledger.update_checkpoint_pointer(
+                                    experiment_id=experiment_id,
+                                    fingerprint=fingerprint_short,
+                                    checkpoint_s3_path=s3_chekpoint_uri,
+                                    step=global_step,
+                                )
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
@@ -668,11 +732,18 @@ def fit(
                     run_root = Path(config["run"]["root"])
                     log_dir = checkpoint_manager.log_directory
                     logger.save_metric_history()
+                    logger.save_dashboard_metrics()
                     s3_sync.upload_training_artifacts(log_dir, run_root)
 
-                    if _ledger_available():
-                        s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                        ledger_writer.write_checkpoint(s3_checkpoint_uri)
+                    experiment_id = config.get("experiment", {}).get("id", "exp")
+                    if experiment_ledger is not None and fingerprint_short:
+                        s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                        experiment_ledger.update_checkpoint_pointer(
+                            experiment_id=experiment_id,
+                            fingerprint=fingerprint_short,
+                            checkpoint_s3_path=s3_chekpoint_uri,
+                            step=global_step,
+                        )
 
             # Logging the end of the model
             logger.metric(f"Epoch {epoch + 1} done. best_{primary_metric}={best_metric}")
@@ -687,13 +758,19 @@ def fit(
                 run_root = Path(config["run"]["root"])
                 log_dir = checkpoint_manager.log_directory
                 logger.save_metric_history()
+                logger.save_dashboard_metrics()
                 s3_sync.upload_training_artifacts(log_dir, run_root)
                 logger.info("Emergency training artifacts uploaded to S3")
 
                 experiment_id = config.get("experiment", {}).get("id", "exp")
-                if _ledger_available():
-                    s3_checkpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                    ledger_writer.write_checkpoint(s3_checkpoint_uri)
+                if experiment_ledger is not None and fingerprint_short:
+                    s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                    experiment_ledger.update_checkpoint_pointer(
+                        experiment_id=experiment_id,
+                        fingerprint=fingerprint_short,
+                        checkpoint_s3_path=s3_chekpoint_uri,
+                        step=global_step,
+                    )
 
         raise  # Raising it again so it propagates to the top
 

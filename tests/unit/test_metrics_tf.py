@@ -419,6 +419,9 @@ def test_build_metrics_from_config():
 
     config = {
         "num_classes": 21,
+        "data": {
+            "classes_file": "configs/data/voc_labels.txt",
+        },
         "eval": {
             "metrics": {
                 "voc_ap_50": {
