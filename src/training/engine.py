@@ -358,9 +358,7 @@ def evaluate(
             if not dashboard_images:
                 batch_image_shape = tf.shape(batch["image"]).numpy()
                 image_size = (int(batch_image_shape[1]), int(batch_image_shape[2]))
-                dashboard_images = sample_detection_images(
-                    predictions, image_size=image_size, class_names=class_names
-                )
+                dashboard_images = sample_detection_images(predictions, image_size=image_size, class_names=class_names)
 
             if max_steps is not None and step + 1 >= max_steps:
                 break
@@ -715,6 +713,7 @@ def fit(
                             s3_sync.upload_training_artifacts(log_dir, run_root)
                             if _ledger_available():
                                 import ledger_writer
+
                                 s3_chekpoint_uri = checkpoint_s3_uri(
                                     s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
                                 )
@@ -734,6 +733,7 @@ def fit(
 
                     if _ledger_available():
                         import ledger_writer
+
                         s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
                         ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
@@ -756,6 +756,7 @@ def fit(
 
                 if _ledger_available():
                     import ledger_writer
+
                     s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
                     ledger_writer.write_checkpoint(s3_chekpoint_uri)
 

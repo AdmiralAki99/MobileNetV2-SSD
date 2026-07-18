@@ -172,7 +172,9 @@ def _maybe_download_config(experiment_path) -> Path:
     bucket = uri.removeprefix("s3://").split("/", 1)[0]
     key = uri.removeprefix("s3://").split("/", 1)[1]
     tmp = Path(tempfile.mkdtemp()) / Path(key).name
-    boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1")).download_file(bucket, key, str(tmp))
+    boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1")).download_file(
+        bucket, key, str(tmp)
+    )
     print(f"Downloaded experiment config from {uri} to {tmp}")
     return tmp
 

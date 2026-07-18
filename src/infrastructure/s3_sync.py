@@ -270,7 +270,7 @@ class S3SyncClient:
             self._client.upload_file(Filename=str(summary_file), Bucket=self._artifact_bucket, Key=s3_key)
             if self._logger:
                 self._logger.info(f"Uploaded training summary: {s3_key}")
-                
+
     def upload_to_artifact_bucket(self, local_dir: Path, s3_sub_prefix: str):
         if self._artifact_bucket is None:
             return
@@ -286,7 +286,7 @@ class S3SyncClient:
 
             self._client.upload_file(Filename=str(file_path), Bucket=self._artifact_bucket, Key=s3_key)
             if self._logger:
-                self._logger.info(f"Uploaded artifact: {s3_key}") 
+                self._logger.info(f"Uploaded artifact: {s3_key}")
 
 
 def parse_bucket_uri(uri: str):
