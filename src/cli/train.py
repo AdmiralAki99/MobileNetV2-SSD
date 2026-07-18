@@ -172,7 +172,7 @@ def _maybe_download_config(experiment_path) -> Path:
     bucket = uri.removeprefix("s3://").split("/", 1)[0]
     key = uri.removeprefix("s3://").split("/", 1)[1]
     tmp = Path(tempfile.mkdtemp()) / Path(key).name
-    boto3.client("s3").download_file(bucket, key, str(tmp))
+    boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1")).download_file(bucket, key, str(tmp))
     print(f"Downloaded experiment config from {uri} to {tmp}")
     return tmp
 
@@ -607,7 +607,6 @@ def train(framework_opts: TrainingBundle, shutdown_handler: ShutdownHandler, res
         shutdown_handler=shutdown_handler,
         s3_sync=framework_opts.s3_client,
         experiment_ledger=framework_opts.experiment_ledger,
-        fingerprint_short=framework_opts.fingerprint.short,
     )
 
     # Saving the Model weights:

@@ -228,6 +228,13 @@ class S3SyncClient:
             s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
             self._client.upload_file(Filename=str(metric_file), Bucket=self._checkpoint_bucket, Key=s3_key)
 
+        # Upload dashboard metrics
+        dashboard_metrics_file = log_directory / "dashboard_metrics.json"
+        if dashboard_metrics_file.exists():
+            relative_path = dashboard_metrics_file.relative_to(run_root.parent)
+            s3_key = f"{self._checkpoint_prefix}/{relative_path}".strip("/").replace("\\", "/")
+            self._client.upload_file(Filename=str(dashboard_metrics_file), Bucket=self._checkpoint_bucket, Key=s3_key)
+
         # Upload checkpoint metadata file
         checkpoint_metadata = log_directory / "checkpoints" / "checkpoint"
         if checkpoint_metadata.exists():
@@ -263,6 +270,23 @@ class S3SyncClient:
             self._client.upload_file(Filename=str(summary_file), Bucket=self._artifact_bucket, Key=s3_key)
             if self._logger:
                 self._logger.info(f"Uploaded training summary: {s3_key}")
+                
+    def upload_to_artifact_bucket(self, local_dir: Path, s3_sub_prefix: str):
+        if self._artifact_bucket is None:
+            return
+
+        local_dir = Path(local_dir)
+        for file_path in local_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+
+            relative_path = file_path.relative_to(local_dir)
+            parts = [self._artifact_prefix, s3_sub_prefix, str(relative_path)]
+            s3_key = "/".join(p for p in parts if p).replace("\\", "/")
+
+            self._client.upload_file(Filename=str(file_path), Bucket=self._artifact_bucket, Key=s3_key)
+            if self._logger:
+                self._logger.info(f"Uploaded artifact: {s3_key}") 
 
 
 def parse_bucket_uri(uri: str):
