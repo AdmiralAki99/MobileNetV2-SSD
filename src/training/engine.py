@@ -38,7 +38,10 @@ from training.dashboard_metrics import build_confusion_matrix, sample_detection_
 from datasets.base import load_class_names
 
 from infrastructure.s3_sync import S3SyncClient
-from infrastructure.dynamodb_ledger import ExperimentLedger
+import os
+
+def _ledger_available():
+    return bool(os.environ.get("DYNAMODB_TABLE") and os.environ.get("EXPERIMENT_ID"))
 
 
 def training_step(
@@ -603,7 +606,7 @@ def fit(
     best_metric: float | None = None,
     shutdown_handler: ShutdownHandler = None,
     s3_sync: S3SyncClient = None,
-    experiment_ledger: ExperimentLedger = None,
+    experiment_ledger: Any = None,
     fingerprint_short: str = None,
 ):
     # Initialize overarching variables
@@ -709,17 +712,10 @@ def fit(
                             logger.save_metric_history()
                             logger.save_dashboard_metrics()
                             s3_sync.upload_training_artifacts(log_dir, run_root)
-                            experiment_id = config.get("experiment", {}).get("id", "exp")
-                            if experiment_ledger is not None and fingerprint_short:
-                                s3_chekpoint_uri = checkpoint_s3_uri(
-                                    s3_sync=s3_sync, log_dir=log_dir, run_root=run_root
-                                )
-                                experiment_ledger.update_checkpoint_pointer(
-                                    experiment_id=experiment_id,
-                                    fingerprint=fingerprint_short,
-                                    checkpoint_s3_path=s3_chekpoint_uri,
-                                    step=global_step,
-                                )
+                            if _ledger_available():
+                                import ledger_writer
+                                s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
+                                ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
             # Checkpointing the last model at the end of the epoch
             if checkpoint_manager is not None:
@@ -733,15 +729,10 @@ def fit(
                     logger.save_dashboard_metrics()
                     s3_sync.upload_training_artifacts(log_dir, run_root)
 
-                    experiment_id = config.get("experiment", {}).get("id", "exp")
-                    if experiment_ledger is not None and fingerprint_short:
+                    if _ledger_available():
+                        import ledger_writer
                         s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                        experiment_ledger.update_checkpoint_pointer(
-                            experiment_id=experiment_id,
-                            fingerprint=fingerprint_short,
-                            checkpoint_s3_path=s3_chekpoint_uri,
-                            step=global_step,
-                        )
+                        ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
             # Logging the end of the model
             logger.metric(f"Epoch {epoch + 1} done. best_{primary_metric}={best_metric}")
@@ -760,15 +751,10 @@ def fit(
                 s3_sync.upload_training_artifacts(log_dir, run_root)
                 logger.info("Emergency training artifacts uploaded to S3")
 
-                experiment_id = config.get("experiment", {}).get("id", "exp")
-                if experiment_ledger is not None and fingerprint_short:
+                if _ledger_available():
+                    import ledger_writer
                     s3_chekpoint_uri = checkpoint_s3_uri(s3_sync=s3_sync, log_dir=log_dir, run_root=run_root)
-                    experiment_ledger.update_checkpoint_pointer(
-                        experiment_id=experiment_id,
-                        fingerprint=fingerprint_short,
-                        checkpoint_s3_path=s3_chekpoint_uri,
-                        step=global_step,
-                    )
+                    ledger_writer.write_checkpoint(s3_chekpoint_uri)
 
         raise  # Raising it again so it propagates to the top
 

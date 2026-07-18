@@ -8,8 +8,6 @@ from training.metrics import MetricsCollection
 from training.checkpoints import CheckpointManager
 from training.ema import EMA
 from training.amp import AMPContext
-from infrastructure.dynamodb_ledger import ExperimentLedger
-
 from infrastructure.s3_sync import S3SyncClient
 
 
@@ -46,7 +44,7 @@ class TrainingBundle:
     s3_client: S3SyncClient | None = None
 
     # Experiment Factors
-    experiment_ledger: ExperimentLedger | None = None
+    experiment_ledger: Any | None = None
     ledger_claimed: bool = False
 
 
